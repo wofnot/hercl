@@ -1,0 +1,38 @@
+` heapsort.hrc
+
+(b) 0 ` beginning (of items to be sorted)
+(s) 1 ` subtree   (where to start sifting down)
+(p) 2 ` parent
+(c) 3 ` child
+(e) 4 ` end       (of items remaining to be sorted)
+
+[c=4,r=5,s=64,m=64,b=10]
+
+(sift_down)               `                    ..
+[ (s)<(p)>(e)<            `  p = s,            ..(e)
+ |(p)<c+(b)<-+(c)>^       `  c = p + (p-b)+1
+   =1:g~:!.               `( c == e )?( c > e )?
+ |(c){^{v.>g~!:(c)^       `([c+1] > [c])? c++
+ |(c){(p){.>g:            `([p] > [c])?        ..(e)[c]
+  (p)}.<(c)}<(p)>2;       ` [p]<->[c], p = c   ..(e)
+ | !! ]                   `                    ..
+
+(heapify)                                      ..(b)
+[ (b)<^<v-(e)<+2#%!+(s)>  `  s = b + (e-b-1)/2
+ | g:=:.                  `( s >= b )?
+ |(sift_down)jv1; ]       ` [sift_down], s--
+
+(hsort)                   `                    ..(b)(e)
+[ (e)>c(b)>(heapify)j     ` [heapify]          ..(b)
+ |(b){(e){(b)}(e)}v       ` [b]<->[e], e--
+   =:c(s)>(sift_down)j;   `( e == b )? s = b, [sift_down]
+ | ! ]                    `                    ..
+
+(main)
+[  1#c.>c(e)>v            `  r.= b, e = b-1    ..(b)
+   i:.                    `  input
+ | s~:^};                 `  scan items (N)
+ | <^<y                   `                    ..(b+N)(b)(b+N-1)
+  (hsort)j                ` [hsort]            ..(b+N)
+ | .=:{^w;                `  write items
+ | o ]                    `  output

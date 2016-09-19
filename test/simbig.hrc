@@ -1,0 +1,277 @@
+` sim.mim
+
+`[ CONST ][ CODE ][ MEM ][ REG ][ STACK ][ CALL_STACK ]
+` |m       |       |      |      |     |             |
+`(bb)     (c0)    (m0)   (gr)   (s0) (s1)           (lp)
+
+`[ CONST ]:
+`[cn|rs|ss|ms|vb]
+` |
+`(bb)
+
+`[ CODE ]:
+`        +--------------------------------+(bc)        (b0)(b1)
+`        |                                | |            |   |
+`[b0|b1|b0|b1|-|b0|b1][code0][.|.][code1][.|.|.]-[codeN][.|.|.]
+` |     |   |                                  |
+`(c0)  (cc) +----------------------------------+
+
+`[code1][.|.|.]:
+`    (pc)  +------------+
+`      |   |            |
+`[|ae~|2=;|^~4}.|][.|.|.]
+`  |               | |
+`  +---------------+(bc)
+
+`[ REG ]:
+`[r0|r1|r2|r3|r4|r5|r6|r7|r8|r9]
+` |
+`(gr)
+
+`[ CALL_STACK ]:
+`[r.|l0|l1|l2]..[lr|cc|bc|pc|rp|r.][l0|l1|l2]
+`                               |         |
+`                              (lr)      (lp)
+
+`GLOBAL CONSTANTS:
+
+(bb)  1 ` boot byte
+(\n) 10
+
+`GLOBAL REGISTERS:
+
+(ir) 0 ` instruction register
+(dt) 1 ` digit type
+(dv) 2 ` digit value
+(lp) 3 ` logic pointer
+(pc) 4 ` program counter
+(s0) 5
+(sp) 6 ` stack pointer
+(s1) 7
+(rp) 8 ` register pointer
+(lr) 9 ` local register
+
+(gr)10 ` global registers
+(m0)11 ` memory
+(ms)12 ` memory size
+(vb)13 ` value base
+(b0)14
+(bc)15 ` bar counter
+(b1)16
+(c0)17
+(cn)18 ` cell number
+(cc)19 ` cell counter
+
+[c=25,r=20,s=64,m=2048,b=10]
+
+(s_inc)
+[ (s1)<(sp)=!:^.|(s0)<(sp)>]
+
+(s_dec)
+[ (s0)<(sp)=!:v.|(s1)<(sp)>]
+
+(set_reg)                         ` set (rp)
+[ #(dt)=!1:('.')#(dt)=!:
+  (gr)<(dv)<+(rp)>.
+ |(lr)<(rp)>]
+
+(mygetc)
+[ s:i;8                           ` scan next character
+ |>(' ')#=!1;(\n)#=!1;('`')#=1:!<.` skip spaces and comments
+ |s:i2;8                          ` scan (inside comment)
+ |>(\n)#=!3;1;]                   ` comment ends with '\n'
+
+(digit)
+[c>('9')#g!:('0')#>g:<-+.         ` if top of stack not a digit,
+ |~]                              ` set top of logic stack to FALSE
+
+(getc)
+[ s:i;8]
+
+(scan_num)
+[ #x#                             ` .. b -> .. 0 b 0
+ |!(mygetc)j(digit)j~;            ` scan forward to first digit
+ |>cy*<+x(getc)j(digit)j;         ` .. v b d -> ..(bv+d) b d
+  !x]                             ` .. v b d -> .. b v
+
+(scan_cell)
+[ ('[')#.>                        ` r.=[
+ |(mygetc)j=~!;                   ` scan forward to next '['
+  (pc)<('|')#c}^(']')#.>          ` r.=], ..(pc)('|')
+ |(mygetc)j.=:(pc)}^;             ` scan codons, until reach ']'
+ |!c.>(pc)}^c}<x>c(bc)>c(cc)}^    ` r.=|, ..(b0)
+ |(pc){^.=~!;                     ` scan forward to next '|'
+  (pc)=:<(bc)}^;
+ |!(bc)<c(cc)}^(pc)>]
+
+(scan_code)
+[ .>10#
+ (scan_num)jc}^x                  ` cn   ..(bb) -> ..(cn)
+ (scan_num)j}^                    ` rs
+ (scan_num)j}^                    ` ss
+ (scan_num)j}^                    ` ms
+ (scan_num)j}^                    ` vb
+  !c+<c(c0)>c(cc)>+c(pc)>         ` cc=c0,pc=c0+2*cn, ..(pc)
+ |(scan_cell)j(cc)=~;
+ |!]
+
+(init_agent)
+[ .>{^{^x{^y{^{(vb)>(ms)>         ` r.=bb,         ..(ss)(rs)(cn)
+  c+.<c(c0)>^+(cc)>               ` cc=(c0-1)+2*cn ..(ss)(rs)
+  {v{(b0)>c(b1)>c(m0)>            `                ..(ss)(rs)(m0)
+ (ms)<+c(gr)>+c(s0)>              `                ..(ss)(s0)
+  +c(s1)>v<(sp)>c(lr)>c(rp)>
+ (lp)>^1#}]
+
+`(get_val)
+`[ #(ir)<                          `.. 0 d
+` |(digit)j~:x(vb)<*+(pc){^;       `.. k d     -> ..(bk+d)
+` |(dt)>('.')#=!:<(ir)>.
+` |#1#                             `.. k d     -> .. k 0 1
+` |(pc){^(digit)j~:                `.. k v s   -> .. k v s d
+`  y(vb)<*y<*+x;                   `.. k v s d -> .. k(bv+d)(sb)
+` |(ir)>/*+]                       `.. k v s   -> ..(k+v/s)
+
+(set_mem)     ` fetch new value for (mp) to the stack
+[ (set_reg)j(rp){(ms)<%x!(m0)<+]
+
+(jump)                            ` JSR 'j'
+[ #(dt)=:!(dv)<                   ` .. c
+ |(rp)<(pc)<(bc)<(cc)<(lr)<       ` .. c (rp)(pc)(bc)(cc)(lr)
+  (lp)<(lr)>^}^}^}^}^}^#}         ` .. c
+  <c(rp)>(lp)>^1#}
+  c+(c0)<+(cc)>{^{v(b1)>c(b0)>(bc)>{(pc)>]
+
+(return)                          ` pop top stack frame
+[ (s1)<(lr)v=~!:8                 ` if empty, halt
+ |{v{v{v{v                        `(rp)(pc)(bc)(cc)
+  {<(lp){x>}(lr)>
+  (cc)>^{v{                       `(rp)(pc)(bc)(b1)(b0)
+  (b0)>(b1)>(bc)>(pc)>(rp)>]
+
+(&/)   ` INTEGRATE THIS INTO OTHER CELLS ?????????
+[ (lr)<(lp){xvg!:!^.
+ |('r')#(ir)=!:
+  (lp){*}.                        ` AND '&'
+ |c{x{*-++}]                      ` OR  'r'
+
+(!#%&*+-)
+[ ('&')#(ir)g!4:('#')#g2:=!:
+  #(sp)}(s_dec)j.                 ` POP '!'
+ |#(dt)=:!(dv)<                   ` PSH '#'
+ |(s_inc)j(sp)}.
+ |!('%')#g!:
+  (sp){(s_dec)j{x%x}(s_inc)j}.    ` MOD '%'
+ |(&/)j.                          ` AND '&'
+ |('+')#g2:
+ |(sp){#}x(s_dec)j{x(ir)=!:       ` a b +
+  *(sp)}.                         ` MLT '*'
+ |+(sp)}.                         ` ADD '+'
+ |!(sp){-}]                       ` NEG '-'
+
+(./09)
+[ ('/')#(ir)=~!:                  ` otherwise, DOT '.' or digit
+  (&/)j.                          ` OR  '/'
+ |#(ir)<                          `.. 0 d
+ |(digit)j~:x(vb)<*+(pc){^;       `.. k d     -> ..(bk+d)
+ |(dt)>('.')#=!:<(ir)>3:
+ |#1#                             `.. k d     -> .. k 0 1
+ |(pc){^(digit)j~:                `.. k v s   -> .. k v s d
+  y(vb)<*y<*+x;                   `.. k v s d -> .. k(bv+d)(sb)
+ |(ir)>/*+                        `.. k v s   -> ..(k+v/s)
+ |(dv)>(step)j]
+
+(:;)
+[ (lp){(lr)<(lp)>^1#}             ` clear logic stack
+  .=~!:.                          ` if not true, do nothing
+ |#(dt)=:!(dv)<
+ |(bc)<x(';')#(ir)=!:             ` ..(bar)(offset)
+  1#++(b1)g1:!(return)j.          ` BRF ':'
+ |-+(b0)g~:!(b0)<|(bc)>{(pc)>]    ` BRB ';'
+
+(<=>?^a)
+[('>')#(ir)g!3:
+  (set_reg)j('=')#(ir)g2:=!:
+  (s_inc)j(rp){(sp)}.             ` GET '<'
+ |(sp){(rp){.>=!1#:!#             ` EQL '='
+ |(lp)^}.
+ |!(sp){#}(rp)}(s_dec)j.          ` PUT '>'
+ |('^')#g1:=!:
+  (s_inc)j?(sp)}.                 ` RAN '?'
+ |(set_reg)j(rp){1#+}.            ` INC '^'
+ |!(sp){a}]                       ` ASN 'a'
+
+(ceghij)
+[ ('g')#(ir)g!3:('e')#g1:=!:
+  (sp){(s_inc)j}.                 ` CPY 'c'
+ |(sp){e}.                        ` EXP 'e'
+ |!(set_reg)j(sp){(rp){.>g!1#:!#  ` GRT 'g'
+ |(lp)^}.
+ |('i')#g2:=!:
+  (sp){h}.                        ` TNH 'h'
+ |i1#:!#                          ` INP 'i'
+ |(lp)^}.                         ` set logic pointer
+ |!(jump)j]                       ` JSR 'j'
+
+(nopqrs)
+[ ('p')#(ir)g!2:('o')#g1:=!:
+  (sp){n}.                        ` LOG 'n'
+ |o.                              ` OUT 'o'
+ |!(sp){(s_dec)j{xpx}(s_inc)j}.   ` PLR 'p'
+ |('r')#g1:=!:
+  (sp){q}.                        ` SQT 'q'
+ |(sp){r}.                        ` RCP 'r'
+ |!#s~:(s_inc)j(sp)}!1#           ` SCN 's'
+ |(lp)^}]
+
+(tvwxy)
+[('v')#(ir)g1:=!:
+  (sp){(s_dec)j{xtx}(s_inc)j}.    ` TRG 't'
+ |(set_reg)j(rp){1#-+}.           ` DEC 'v'
+ |!('w')#=~!:                     ` WRT 'w'
+  (sp){#}(s_dec)jw.
+ |(sp){(s_dec)j('y')#(ir)=!:      ` SWP 'x' or ROT 'y'
+  (sp){x}(s_inc)j}.               ` SWP 'x'
+ |(sp){x(s_dec)j{x}(s_inc)j}(s_inc)j}]       ` ROT 'y'
+
+(z{|}~)
+[ ('|')#(ir)g4:=!1:
+  ('{')#=!:
+  (sp){z}.                        ` INT 'z'
+ |(set_mem)j.>{(s_inc)j(sp)}.     ` LOD '{'
+ |#(dt)=!:('.')#=!1:8
+ |(b1)<(bc)^=!:{(pc)>.            ` BAR '|'
+ |(return)j.
+ |!('~')#=!:
+  (sp){#}(s_dec)j(set_mem)j.>}.   ` STO '}'
+ |1#(lp){-+}]                     ` NOT '~'
+
+`[ ('|')#(ir)g3:=!:
+`  (set_mem)j.>{(s_inc)j(sp)}.     ` LOD '{'
+` |#(dt)=!:('.')#=!1:8
+` |(b1)<(bc)^=!:{(pc)>.            ` BAR '|'
+` |(return)j.
+` |!('~')#=!:
+`  (sp){#}(s_dec)j(set_mem)j.>}.   ` STO '}'
+` |1#(lp){-+}]                     ` NOT '~'
+
+(step)
+[ ('a')#(ir)g!3:('9')#g!1:('-')#g!:
+  (!#%&*+-)j.                     ` POP to NEG
+ |(./09)j.                        ` DOT,RCP,DIGITS
+ |(';')#g!:
+  (:;)j.                          ` branch
+ |(<=>?^a)j.                      ` GET to ASN
+ |('s')#g!1:('j')#g!:
+  (ceghij)j.                      ` CPY to JSR
+ |(nopqrs)j.                      ` LOG to SCN
+ |('y')#g!:
+  (tvwxy)j.                       ` TRG to ROT
+ |(z{|}~)j]                       ` INT to NOT
+
+(run)
+[ (init_agent)j(b0)<(bc)>{(pc)>
+ |#(dt)>(pc){^(ir)>(step)j;]
+
+(main)
+[ (bb)#c(scan_code)j(run)j]

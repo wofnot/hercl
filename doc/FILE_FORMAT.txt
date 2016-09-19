@@ -1,0 +1,35 @@
+------ FILE FORMAT ------
+
+This file describes the file format expected for hercsearch training data as well as config files.
+In HERCL agents exchange information in the form of 'messages', which are variable-length sequences of numbers. All numbers are internally floating point values, but when a value is an integer in the printable-character range it is displayed as ASCII.
+
+HERCL training and config files consist of a series of messages separated by line breaks. For example:
+-------
+,3.7,-2,0.456e-06
+
+hercl
+,104,101,114,99,108
+-------
+The above file specifies 4 messages of lengths 3,0,5,5 respectively. The 3rd and 4th messages are identical.
+
+For training data the format is a little more complicated. An example:
+-------
+2
+,2,4
+,0
+,0,0
+,1,2,3
+,2
+,2,4,6
+,-1,1,-1
+,10
+,-10,10,-10
+-------
+The above example shows a series of three training items, each of which consists of two input messages and one output message. The first line of the file specifies the number of inputs for each training item. If this line is absent the system assumes single-input items.
+
+For example, the first training item in the set has:
+  input 1 = (2,4)
+  input 2 = (0)
+  output  = (0,0)
+
+The task for the agent is to take a variable-length list of numbers from the first message, and multiply it by a scalar given in the second message.

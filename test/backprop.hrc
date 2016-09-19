@@ -1,0 +1,255 @@
+` backprop.hrc
+`                    u1       dw1
+`                    |         |
+` [CONST][DATA][w][u][h][z][dw][dz][dh][di]
+` |      |     |     |  |      |   |   |
+` bb     d0    w0    h0 z0    dz0 dh0 di0
+
+`[CONST]
+`[ni|nh|nz|w0|h0|z0|dz0|dh0|di0]
+`            |u1|  |dw1|
+
+`[DATA] = [input1][target1]..[inputN][targetN]
+`          |
+`          d0
+
+`  eta    = learning rate
+`  eps    = minimum Error (cost)
+`  Nep    = maximum number of epochs
+`  ni     = number of  input layer units
+`  nh     = number of hidden layer units
+`  nz     = number of output layer units
+`  bb     = start address of constants
+`  d0     = start address of data
+`  w0/ w1 = start/final address of weights
+`  i0/ i1 = start/final address of (training) input  units
+`  t0/ t1 = start/final address of (training) target units
+`  u0/ u1 = start/final address of (testing)  input  units
+`  h0/ h1 = start/final address of hidden layer units
+`  z0/ z1 = start/final address of output layer units
+` dw0/dw1 = start/final address of weight differentials
+` dz0/dz1 = start/final address of output layer differentials
+` dh0/dh1 = start/final address of hidden layer differentials
+` di0/di1 = start/final address of  input layer differentials
+
+` REGISTERS
+
+(dj) 0   ` activation differentials
+(dw) 1   ` weight differentials
+(w)  2   ` weights
+(nj) 3   ` number of units in current layer
+(E)  4   ` Error (cost)
+(bb) 5   ` base byte (constants)
+
+(dz) 0   ` output differentials
+(t)  1   ` targets
+(nd) 3   ` number of data items
+
+[c=18,r=10,s=64,m=256,b=10]
+
+`****************************************************************
+` If input fails, set error_flag and return.
+` Otherwise, transfer items to memory location specified on stack.
+` Return (on stack) the first location after the items.
+`****************************************************************
+(scan_item)        `                  ..(j)
+[ i:~.
+ |.>               `                  ..
+ |s~:}^;           ` (j+)
+ |<]               `                  ..(j+nj)
+
+`****************************************************************
+` Reg:  (nj) = number of units in (previous) layer
+`        (w) = address of weight
+` Stack:(j1) = start address of units in (previous) layer
+` Compute linear function (sum) and return it on stack.
+`****************************************************************
+(forward_node)      `  nj,w           ..(j1)
+[ c(nj)<-+.>(w){^   `  (.) =(j1)-(nj) ..(j1)(sum)
+ |x.=x:{^(w){^*+;]  `(sum)+=[.+]*[w+]
+
+`****************************************************************
+` Reg:  (nj) = number of units in layer
+`        (w) = address of weight
+` Stack:(j1) = final address of units in previous layer
+`       (k1) = final address of units in the next layer
+`       (k0) = start address of units in the next layer
+` Compute linear function for each unit in the next layer,
+` and store them into memory [k0..k1-1].
+`****************************************************************
+(forward_layer)           `  nj,w     ..(j1)(k1)(k0)
+[ .>                      ` (.) =(k0) ..(j1)(k1)
+ |.=:x(forward_node)j}^x;]` [.+]=(sum)
+
+`****************************************************************
+` Stack:(k1) = final address of units in next layer
+`       (k0) = start address of units in next layer
+` Apply sigmoid function to all units in layer [k0..k1-1]
+`****************************************************************
+(sigmoid)           `                 ..(k1)(k0)
+[ .>                `                 ..(k1)
+ |=:{-e1#+r}^;]
+
+`****************************************************************
+` Memory: [ni|nh|nz|w0|h0|z0]
+` Compute activations for hidden and output layers.
+`****************************************************************
+(forward)                 `           ..(i1)
+[ (bb)<.>{^(nj)>          ` (nj)=(ni)
+  c.{^{^ycy               `           ..(i1)(nz)(nh)(i1)(nh)
+  {^(w)>.{+{              `  (w)=(w0) ..(i1)(nz)(nh)(i1)(h1)(h0)
+  (forward_layer)j{(sigmoid)j       ` ..(i1)(nz)(nh)(i1)(h1)
+  x!x(nj)>x.^{+{          ` (nj)=(nh) ..(i1)(h1)(z1)(z0)
+  (forward_layer)j{(sigmoid)jx!{]   ` ..(i1)(z1)(z0)
+
+`****************************************************************
+` Compute activations for hidden and output layers.
+` Stack: (u0)= start address of input layer
+`        (u1)= final address of input layer
+`****************************************************************
+(apply)                          `    ..(u0)
+[ c(scan_item)j:~.               `    ..(u0)(u1)
+ |(forward)j.>          ` (.)=(z0)    ..(u0)(u1)(z1)
+ |=:{^w;                ` (.+)
+ |!!o]
+
+`****************************************************************
+` Scan data items one by one and store them in memory.
+`****************************************************************
+(scan_data)                         ` ..(d0)
+[ c(scan_item)jcyx-+x               ` ..(ni)(d0+ni)
+  c(scan_item)jcyx-+x#.>^     `(nd)=1 ..(ni)(nz)(d0+ni+nz)
+ |(scan_item)j~:^(scan_item)j;`(nd+)  ..(ni)(nz)(d1)
+ |<x]                               ` ..(ni)(nz)(nd)(w0)
+
+`****************************************************************
+` Reg:  (w) = start address of weights (w0)
+`      (dw) = start address of weight differentials (dw0)
+` Add (learing rate)*(weight differential) to each weight,
+`             and set weight differentials to zero.
+`****************************************************************
+(update_weights) `(w)=(w0),(dw)=(dw0) ..(eta)(dw1)
+[ (dw)=:xc{#}^*(w){+}^x;] ` [w]=[w]+(eta)*[dw],[dw+]=0
+
+`****************************************************************
+` Reg:   (nj) = number of hidden layer units (nh)
+` Initialize constants in memory
+` Memory:[ni|nh|nz|w0|h0|z0|dz0|dh0|di0]
+`         |
+`        (bb)
+`****************************************************************
+(init)                  ` (nj)=(nh)   ..(Nep)(eps)(eta)(ni)(nz)(nd)(w0)
+[ x!yx(bb)}<.>^(nj)<.}^             ` ..(Nep)(eps)(eta)(w0)(nz)
+  c}^x}c(nj)^<*v<(bb){1#+*+cycy     ` ..(Nep)(eps)(eta)(nw)(nw)(nz)(nw)
+  (bb){+.{^+c}^(nj)<+.}             ` ..(Nep)(eps)(eta)(nw)(nw)(nz)
+  cy+{^+c}^+c}^(bb){+.}]            ` ..(Nep)(eps)(eta)(nw)
+
+`****************************************************************
+` Reg:   (dj) = start address of differentials in (previous) layer
+` Stack: (j0) = start address of activations in (previous) layer
+`        [dk] = differential of node in next layer
+` Update differentials for weights and nodes in (previous) layer.
+`****************************************************************
+(back_node)         ` (dj) = dj0      ..(j0)[dk]
+[ xc(nj)<+.>        `  (.) =(j0)+(nj) ..[dk](j0)
+  (nj)<(dj)<+>      ` (dj)+=(nj)
+ |.=x:cv{*(dw)v{+}  `[-dw]+=[dk]*[-.] ..(j0)[dk]
+  c(w)v{*(dj)v{+}x; `[-dj]+=[dk]*[-w]
+ |(dw)v{+}(w)v]     `[-dw]+=[dk],(w-) ..(j0)
+
+`****************************************************************
+` Reg:  (dj0)= start address of differentials in previous layer
+` Stack: (j0)= start address of  activations  in previous layer
+`       (dk0)= start address of differentials in   next   layer
+`       (dk1)= final address of differentials in   next   layer
+`
+` Backpropagate differentials from next layer to previous layer.
+`****************************************************************
+(back_layer)        `  dj  = dj0      ..(j0)(dk0)(dk1)
+[ .>                `  (.) = dk1      ..(j0)(dk0)
+  (nj)<(dj)<+<x>    ` (dj)+=(nj)      ..(j0)(dk0)(dj0)
+ |=:#v};            `[-dj] = 0
+ |!                                `  ..(j0)(dk0)
+ |.g~:x.v{          ` [dk] =[-.]      ..(dk0)(j0)[dk]
+  (back_node)jx;]   `                 ..(j0)(dk0)
+
+`****************************************************************
+` Compute output differentials by subtracting output from target.
+`****************************************************************
+(diff)              `  E              ..(t0)(z1)(z0)(dz0)
+[ (dz)>             ` (dz)=dz0        ..(t0)(z1)(z0)
+  .>x(t)>(dz)<x     `  (.)=z0,(t)=t0  ..(dz0)(z1)
+ |.=:{^-(t){^+c(dz)}^c*(E)<+>;
+ |(dz)<x]                          `  ..(dz0)(dz1)(z1)
+
+`****************************************************************
+` Stack:(dj0)= start address of differentials in this layer
+`       (dj1)= final address of differentials in this layer
+`        (j1)= final address of  activations  in this layer
+` Multiply differentials by derivative of the sigmoid function.
+`****************************************************************
+ (dsig)              `                 ..(dj0)(dj1)(j1)
+[ .>cy<y(dj)>        `(.)=j1,dj=dj1    ..(dj1)(j1)(dj0)
+ |g~:.v{c-1#+*(dj)v{*}; ` [-dj]*=[-.]*(1-[.])
+ |y]                                `  ..(dj0)(dj1)(j1)
+
+`****************************************************************
+` Memory: [ni|nh|nz|w0|h0|z0|dz0|dh0|di0]
+`                     |u1|  |dw1|
+` Reg:   (nj)= number of hidden layer units (nh)
+`        (w) = final address of weights
+`
+` Apply backprop to all weights and activations in the network.
+`****************************************************************
+(backprop)          ` (nj)=(nh)       ..(i0)(t0)(z1)(z0)
+[ (bb)<6#+.>{vv                    `  ..(i0)(t0)(z1)(z0)(dz0)
+  (diff)j                          `  ..(i0)(dz0)(dz1)(z1)
+ ` (dsig)j                   ` NO cross-entropy
+  !.{^^y                           `  ..(i0)(h0)(dz0)(dz1)
+  {^{(dj)>(dw)>     ` (dj)=(dh0),(dw)=(dw1)
+  (back_layer)j                    `  ..(i0)(h0)(dz0)
+  !.{^cy(nj)<+x<+                  `  ..(i0)(dh0)(dh1)(h1)
+  (dsig)j!                         `  ..(i0)(dh0)(dh1)
+  .{(dj)>(bb){(nj)> ` (dj)=(di0),(nj)=(ni)
+  (back_layer)j]                   `  ..(i0)(dh0)
+
+`****************************************************************
+` Memory: [ni|nh|nz|w0|h0|z0|dz0|dh0|di0]
+`                     |u1|  |dw1|
+`
+` Apply backprop to all training data items
+`****************************************************************
+(epoch)                          `    ..(eta)
+[ #(E)>(bb)<c.>^^{^{>x9#+  ` (.)=(w0) ..(eta)(nz)(d0)
+ |.=:c(bb){+cy                   `    ..(eta)(nz)(i1)(i0)(i1)
+  (forward)j(backprop)j!!xcy+;   `    ..(eta)(nz)(i1)(i0)
+ |!!(bb)<6#+.>{                  `    ..(eta)(dw1)
+  (update_weights)j!]            `    ..(eta)
+
+`****************************************************************
+` Input parameters and transfer them to stack.
+`****************************************************************
+(scan_params)           ` Input: [nh][eta][eps][Nep]
+[is(nj)>ssxsy.]         ` (nj)=(nh)   ..(Nep)(eps)(eta)
+
+`****************************************************************
+` Store random values into weights
+`****************************************************************
+(randomize)                         ` ..(eta)(nw)
+[ -(bb)<.>^^^{^^^(w)>   `  (w)=(w0)   ..(eta)(-nw)
+  .{+{xc(dw)>.>         ` (dw)=(dw0)  ..(eta)(dw1)
+` |=:10#}^;
+` |=:<41#-+0.1#*}^;
+` |=:?0.2#*0.1#-+}^;
+ |=:?2#*1#-+}^;
+ |(update_weights)j!]  `              ..(eta)
+
+`****************************************************************
+(main)
+[ (scan_params)j1#(bb)> ` (nj)=(nh)   ..(Nep)(eps)(eta)
+  <9#+(scan_data)j      `             ..(Nep)(eps)(eta)(ni)(nz)(nd)(w0)
+  (init)j(randomize)j   `             ..(Nep)(eps)(eta)
+  x1#.>                 `             ..(Nep)(eta)(eps)
+ |y(epoch)jy.^gy:(E)g;
+ |.<y(bb){-<4#+.>{+     `             ..(Nep)(ep)(eta)(eps)(u0)
+ |(apply)ji;]

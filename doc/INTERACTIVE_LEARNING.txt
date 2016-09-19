@@ -1,0 +1,82 @@
+------ INTERACTIVE LEARNING ------
+
+
+---------- How to use ----------
+
+Interactive learning requires an environment responsible for evaluating agents. This environment can implemented in C or in HERCL.
+
+For running interactive learning with a C environment:
+  You need a C file which implements the functions declared in src/base/interact.h. One of the existing C environments is src/inter/square_env.c, a simple environment which outputs a number and expects the agent to return the square. Using this as an example, to run an interactive evolution you would run (from the project directory):
+  
+  make -C inter/evol square_env;
+  ./bin/square_env -n
+  
+For running interactive learning with a HERCL environment:
+  (This is a work in progress and may not work as expected)
+  You need a HERCL program which implements an environment (the top item on the stack when the environment outputs a message gives the score). The only existing HERCL environment is inter/hrc/pole_cart.hrc. To run evolution using this environment:
+  
+  make -C src/base hercsearch
+  cd inter/evol
+  ../../bin/hercsearch -e ../hrc/pole_cart.hrc -p ../cfg/pole_cart.cfg -n
+
+---------- Flags and options ----------
+
+  -l lib.hrc              Single agent to use as library
+  
+  -L lib.list             Line-separated list of hercl files to use as library
+  
+  -i <file.hrc>           Hercl program to use as initial code. Default is an empty 
+                          program. Note that this will override -c.
+                          
+  -u [alpha] [magnitude]  Tuning mode. Must be used with -i.
+  
+  -d <seed>               Set seed for PRNG. Use 0 for time-based seed. Note that running 
+                          in parallel will produce non-deterministic output.
+                          
+  -react                  Run in reactive mode
+  
+  -recur                  Run in recurrent mode (default)
+  
+  -a agt.cfg              Configuration file for agent (see FILE_FORMAT.txt for format)
+  
+  -p task.cfg             Configuration file for environment 
+                          (see FILE_FORMAT.txt for format)
+  
+  -n [num_trials]         Enable incremental learning, and choose initial number of trials 
+                          (default is 2).
+                          
+  -k <max_trials>         Set maximum number of trials agent must pass to be considered 
+                          successful (default is 1000)
+  
+  -g <max_eval>           Set maximum number of evaluations before termination.
+  
+  -z <trims>              Set number of trims to perform in trimming phase. -z 100 means 
+                          perform exactly 100 trims regardless of success. -z -100 means 
+                          keep trimming until 100 trims in a row have been unsuccessful 
+                          (potentially takes a long time).
+
+  -c <cells>              Set number of cells for agent (default is 1).
+  
+(extra flags for running parallel threads, see PARALLEL.txt for info)
+
+  -m                      Set number of instances of the task to work on. Ideally this 
+                          should be the same as the number of threads but otherwise the 
+                          instances will be distributed amongst threads.
+
+  -x                      Disable code-sharing between threads.
+
+  -j                      Terminate all other processes as soon as one process finds a solution.
+
+  -o <output_folder>     Sets a folder for per-process output. Output is saved as TASK_1.txt, TASK_2.txt, etc. Otherwise output is all directed to stdout and is difficult to follow.
+
+
+Some other options are defined at the top of interact.c. These are:
+  
+  SWAP_FAILS        If this is defined, if agents fail to pass a 
+                    trial during incremental training, the failed trial
+                    will swap with the next trial until an agent succeeds.
+  
+  RESHUFFLE_FAILS   If defined, when agents repeatedly fail to pass any new 
+                    trials, choose a new random set of trials to train the agent.
+                    It specifies the number of epochs without passing new trials
+                    before which the set of trials is reshuffled.

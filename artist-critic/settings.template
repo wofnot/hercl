@@ -1,0 +1,18 @@
+# example settings.txt
+# you can't have comments in the real thing.
+# all fields MUST be specified
+
+artist_tolerance:0.1                      # tolerance for critic, as a fraction NOT a percentage 
+push_pop:0                                # whether to allow push/pop commands for agent
+no_loop:0                                 # whether to disable branch back instruction for agent
+max_step:900                              # maximum number of steps for artist
+max_movement:15.0                         # maximum movement per step, use -1 for unlimited 
+use_colour:1                              # whether to allow colour. if not, training images will be treated as greyscale
+
+critic_tolerance:0.1                      # tolerance for critic, as a fraction NOT a percentage
+num_artists:10                            # number of artists to generate in each phase
+num_critics:3                             # number of critics to generate. art-school will take the mean score across these critics
+use_past_critics:1                        # whether to use critics from previous phases (weightings = (1.0, 0.5, 0.25 ...) going back in time)
+cells:1                                   # number of cells for artist
+train_data:data/chinese data/colour       # training data folders. must have both pos/ and neg/ subdirectories
+max_eval:1000000                          # when generating artist, will give up and move on after this many evaluations        

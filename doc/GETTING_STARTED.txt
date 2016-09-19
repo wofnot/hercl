@@ -1,0 +1,200 @@
+------ GETTING STARTED ------
+
+cd hercl/test
+type "make"
+
+The first test executes quicksort on the file sort.in
+If you re-run without -b, you will be able to see
+the simulator running. You can step through the code
+by typing h,n,s,c etc. (type "h" for help)
+
+The other tests execute heapsort, as well as a HERCL
+simulator written in HERCL executing quicksort and
+heapsort, a simulator simulating another simualtor
+executing quicksort, and, finally, a backpropagation
+neural network training on the xor task.
+
+SUPERVISED TUNING
+
+cd ../super/tune
+
+make xor
+
+../../bin/hercsearch -i ../../lib/hrc/nn16.hrc -a ../../lib/cfg/nn2t1.cfg -u -s ../data/raw/xor.in -t 0
+
+Here is an explanation of each argument:
+
+-s ../data/raw/xor.in
+Take the supervised learning data from the file /data/raw/xor.in
+This file specifies the training data, followed by a backslash on a
+line by itself, followed by the test data.
+(In this case of xor, the training and test data are the same)
+
+-u
+Training will be in "tuning" mode - this means the structure of the
+code will not change, but the push values (in this case, the weights
+of the neural network) will be mutated.
+
+-i ../../lib/hrc/nn16.hrc
+Initialize the ladder with the hercl program nn16.hrc (in the lib directory)
+This program implements a 2-layer feed-forward neural network with up
+to 16 weights.  The sigmoid activation function is used at the hidden
+nodes.
+
+-a ../../lib/cfg/nn2t1.cfg
+Use the "agent configuration" file nn2t1.cfg, which specifies that the
+network will have two hidden nodes and one output node, with the tanh
+activation function used at the output node (producing an output
+between -1 and 1).
+
+-t 0
+The target cost is zero, i.e. training will continue until the
+training error reaches zero.
+
+The default cost_type is determined by this formula:
+
+  if( targets_differ_in_length || total_items == 1 ) {
+    cost_type = LED;
+  }
+  else if( all_targets_between_zero_and_one ) {
+    cost_type = KLD;
+  }
+  else if( all_targets_between_one_and_minus_one ) {
+    cost_type = SGN;
+  }
+  else if( target_length == 1 ) {
+    cost_type = LIN;
+  }
+  else {
+    cost_type = SQR;
+  }
+
+Details of the tuning process are described in the report.
+
+Now type:
+make ionosphere
+
+-s ../data/raw/ionosphere.in
+
+The ionosphere data from the UCI repository is used.
+
+-i ../../lib/hrc/nn256.hrc
+The program nn256.hrc will be used - which allows up to 256 weights in the network.
+
+-a ../../lib/cfg/nn4t1.cfg
+There will be 4 hidden nodes in the neural network.
+
+Because a target cost has not been specified, the default value of 0.2
+per training item will be used. Since the total number of training items
+is 351, training will stop when the cost reaches 70.2
+
+-n
+incremental learning will be employed. Training will start with just one item.
+When the training cost for this one item has reached 0.2, a second item will
+be added. Every time the training cost reaches 0.2 times the number of current items,
+a new item will be added. If, after the end of an epoch, the cost is still above
+threshold, the last-added item will be ejected and the next item after it will be added.
+Thus you can get a "ringing" effect where two difficult items are swapped back and forth,
+until the program accommodates one of them, and moves on.
+
+II /334,      66.77  21  
+JI /343,      67.03  21  
+KI /344,      70.69  22   9328 708841
+
+This means that the agent solved 234 items. Then, it turned out that
+this agent was able to solve the next 9 items as well, brining the
+total to 343. Training then continues, using 344 items, with a cost of
+70.69 and incorrectly classifying 22 of the 344 training items.
+
+You can see more options by typing
+../../bin/hercsearch -h
+
+Incremental training is generally faster.
+
+SUPERVISED EVOLUTION
+
+cd hercl/super/evol
+make xor
+
+../../bin/hercsearch -s ../data/raw/xor.in -t 0
+
+This time, the search is by evolution
+(specifically, Hierarchical Evolutionary Re-Combination).
+Since there is only one cell, the highest level of mutation is CELL.
+
+You can run it repeatedly, and get a different solution each time.
+
+make ionosphere0
+
+The ionosphere data is divided into 90% training and 10% test data.
+
+../../bin/hercsearch -s ../data/xval/ionosphere/A/ionosphere0.in -n -c 4
+
+-c 4
+The number of cells in the program is 4.
+
+KI /112,      23.24   7       723.02   2 86532 3680455
+
+The cost for 112 training items is 23.24, and 7 of them are misclassified.
+The cost for the full set of test items is 723.02 and 2 of them are misclassified.
+
+INTERACT - TUNING
+
+cd hercl/inter/tune
+
+make pole_cart_hercl
+
+../../bin/hercsearch -e ../hrc/pole_cart.hrc -p ../cfg/pole_cart.cfg -u -i ../../lib/hrc/nn16.hrc -a ../../lib/cfg/nn2t1.cfg -n
+
+-e ../pole_cart.hrc
+The evolving agent is evaluated by another hercl program.
+The agent and the environment take turns exchanging messages, until
+the environment halts and the value on top of the stack is the cost
+assigned to the agent.
+In this case, the program pole_cart.hrc simulates the famous pole-cart
+balancing task. The cost is 1000 minus the number of timesteps for
+which the pole remained balanced. Training is by incremental learning
+(See GECCO paper for details).
+
+Now type:
+make pole_cart
+
+../../bin/pole_cart -p ../cfg/pole_cart.cfg -u -i ../../lib/hrc/nn16.hrc -a ../../lib/cfg/nn2t1.cfg -n
+
+This performs the same experiment, except that the environment is
+simulated by C code rather than a hercl program. The C code is in
+/hercl/src/inter/pole_cart.c and implements the functions whose
+prototypes appear in /hercl/src/base/interact.h
+(Note: when hercsearch is compiled, these functions are provided in
+/hercl/src/base/inter_hercl.c).
+For this pole balancing task, the C code works the same way as
+the hercl code, except that it uses a 4th order Runge-Kutta method
+rather than a 2nd order Newton method to compute the simulation.
+
+You can see more options by typing
+../../bin/pole_cart -h
+
+INTERACT - EVOLVUTION
+
+Type:
+
+cd ../evol
+
+make pole_cart_hercl
+
+../../bin/hercsearch -e ../pole_cart.hrc -p ../cfg/pole_cart.cfg -n
+
+This is using evolution, with environment implemented as a hercl program.
+
+Type:
+
+make pole_cart
+
+../../bin/pole_cart -p ../cfg/pole_cart.cfg -n
+
+This is using evolution, with the environment implemented using C code.
+
+You can also try:
+
+make double_pole
+

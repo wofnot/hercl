@@ -1,0 +1,12 @@
+# example art-school.txt
+# you can't have comments in the real thing.
+
+L critics.list   # critics.list is a file where each line is of the form "<weight> <critic file>" e.g. "0.5 critic.hrc"
+                 # alternatively for a single critic use A e.g. "A critic.hrc"
+out/out1.pgm     # output file, set to "-" for no output
+0.1              # tolerance, as a percentage  
+1                # allow push/pop, 0 or 1
+0                # disable loops, 0 or 1
+900              # max steps
+15.0             # max movement per step, use -1 for unlimited
+1                # allow colour, 0 or 1

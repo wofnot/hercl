@@ -1,0 +1,26 @@
+------ MAKING ------
+
+On the most part, making is a reasonably simple process:
+
+  To make hercsearch or hercl:
+  make -C src/base hercsearch
+
+  To make an interactive environment called 'example_env':
+  make -C inter/evol example_env
+  
+  To make the environment in debug mode:
+  make -C debug example_env
+  
+Unfortunately, making executables that require openCV libs (i.e. runMetrics and art-school), the process is a little different. You have to have cmake installed as well. Sorry.
+
+  Before running any of these you have to configure cmake (you need only do this once ever):
+  cd cmake; cmake .; cd ..
+
+  To make art-school:
+  make -C cmake art-school
+  
+  To make art-school in debug mode:
+  make -C cmake debug_art-school
+  
+  To make runMetrics:
+  make -C cmake runMetrics

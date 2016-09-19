@@ -1,0 +1,11 @@
+------ EXTRA STUFF ------
+
+This file describes two experiments in coevolution built on top of the HERCL framework. Both are implemented as interactive environments, but also contain shell scripts to automate the higher-level process.
+
+----- artist-critic -----
+Alternately evolves artists and art critics (both are HERCL programs). The critics are trained to distinguish 'real' images from HERCL-generated ones, while the artists are evaluated based on their ability to 'fool' critics. Running this process iteratively creates a competitive dynamic between the artist and the critic, forcing the artist to generate novel images at each phase. Based on an approach described by Machado & Romero in "On Evolutionary Computer-Generated Art" (2011).
+See artist-critic/README.txt for information.
+
+----- nim_players -----
+Co-evolutionary framework for evolving HERCL agents to play the game of Nim. Alternately evolves Player 1 and Player 2; agents are evaluated according to how successfully they can play against previously evolved players.
+See nim_players/README.txt for information.

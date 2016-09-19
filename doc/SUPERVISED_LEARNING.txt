@@ -1,0 +1,94 @@
+------ SUPERVISED LEARNING ------
+
+---------- How to use ----------
+
+To make the hercsearch executable/binary, just run 
+
+  make ../../bin/hercsearch
+
+from the makefile in /super/evol. The /bin folder should now have "hercsearch" in it. The hercsearch binary is mostly used for supervised learning, interactive learning is done with separate binaries for each interactive environment.
+
+To run supervised learning, simply run hercsearch, using the -s or -S flags to specify the location of the training and test data to evolve on. 
+
+---------- Flags and options ----------
+  
+  -h                      Help (prints out a short summary of flags and usage)
+  
+  -s <data.in>            Specify the training/test data file for supervised learning
+  
+  -S <datasets.list>      Specify a file containing a list of paths, one per line, of the
+                          supervised learning data files. By default a separate process is
+                          spawned for each item in the list. See PARALLEL.txt for details. 
+  
+  -l <lib.hrc>            Single agent to use as library
+  
+  -L <lib.list>           Line-separated list of hercl files to use as library
+  
+  -i <file.hrc>           Hercl program to use as initial code. Default is an 
+                          empty program. Note that this will override -c.
+                          
+  -u [alpha] [magnitude]  Tuning mode. Must be used with -i.
+  
+  -d <seed>               Set seed for PRNG. Use 0 for time-based seed. Note that
+                          running in parallel will produce non-deterministic output.
+                          
+  -a agt.cfg              Configuration file for agent
+                          (see FILE_FORMAT.txt for format)
+                          
+  -n [num_trials]         Enable incremental learning, and choose initial number of 
+                          trials (default is 2).
+                          
+  -g <max_eval>           Set maximum number of evaluations before termination.
+  
+  -z <trims>              Set number of trims to perform in trimming phase. 
+                          -z 100 means perform exactly 100 trims regardless of success. 
+                          -z -100 means keep trimming until 100 trims in a row have
+                          been unsuccessful (potentially takes a long time).
+  
+  -c <cells>              Set number of cells for agent (default is 1).
+  
+  -f <cost_type>          The cost function to use to evaluate agents. Options include:
+                            lin (default) - the L1 norm, or linear distance
+                            gled          - the Generalised Levenshtein Edit Distance
+                            sqr           - the squared sum distance
+  
+  -i <file.hrc>           Set the initial code from which to evolve.
+                          By default this code is empty.
+  
+  -t <target_cost>        Set the target cost per training item. i.e. a succesful agent 
+                          must have cost less than <number of trials> x <target cost> 
+                          to succeed.
+  
+  -v                      Run in verbose mode (this prints out a LOT of information 
+                          about the evolution).
+
+
+Extra flags for running parallel threads, (see PARALLEL.txt for info):
+
+  -x                      Disable code-sharing between threads.
+  
+  -j                      Terminate all other processes as soon as one process finds a 
+                          solution.
+                          
+  -o <output_folder>      Sets a folder for per-process output. Output is saved as
+                          TASK_1.txt, TASK_2.txt, etc. Otherwise output is all directed
+                          to stdout and is difficult to follow.
+
+
+Additional options:
+
+Some other options are defined at the top of super.c. These are:
+  
+  SWAP_FAILS        If this is defined, if agents fail to pass a 
+                    trial during incremental training, the failed trial
+                    will swap with the next trial until an agent succeeds.
+  
+  RESHUFFLE         If defined, if agents repeatedly fail to pass any new 
+                    trials, choose a new random set of trials to train the agent.
+                  
+  RESHUFFLE_FAILS   The number of epochs without passing new trials before which
+                    the set of trials is reshuffled.
+
+We recommend that SWAP_FAILS and RESHUFFLE be left defined, and RESHUFFLE_FAILS be set to around 6 for the best performance.
+
+See FILE_FORMAT.txt for details on how to format training and test data.

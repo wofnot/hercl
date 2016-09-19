@@ -1,0 +1,36 @@
+------ DEBUG TOOLS ------
+
+The HERCL package includes a few rudimentary tools which can be very helpful in debugging HERCL agents or environments.
+
+------ HERCL interpreter ------
+
+A step-by-step intepreter for HERCL code, including stack and register visualisation.
+To make:
+  make -C src/base hercl
+  
+Usage: bin/hercl [-b] [-d <seed>] [+r reg.in] file.hrc file1.in [file2.in ..]
+-b is batch mode, i.e. not step by step.
+
+------ HERCL environment step-by-step ------
+ 
+Similar to the above but instead of reading from a file the agent exchanges messages with a C environment.
+The executable is the name of the environment preceded by "debug_". E.g. for square_env:
+To make:
+  make -C debug square_env
+
+Usage: ./bin/debug_square_env [-d <seed>] [-b] file.hrc [-a agt.cfg] [-p env.cfg] [-r] [-n <num_trials>]
+
+file.hrc specifies the agent that is interacting with the environment.
+When compiling in debug mode, the DEBUG macro will be automatically defined. You can use this in the environment code to print out debug information.
+
+Note: for environments that require OpenCV (i.e. art-school) the make process is unfortunately different. See MAKING.txt for details.
+
+------ Human environment ------
+
+The 'human' environment is a special interactive environment which allows a human to play the part of the environment by entering messages at runtime.
+It should be used in debug mode as above. I.e.:
+To make:
+  make -C debug human
+Usage: ./bin/debug_square_env [-d <seed>] [-b] file.hrc [-a agt.cfg] [-p env.cfg] [-r] [-n <num_trials>]
+
+Each time the agent outputs a message, the human will be prompted to respond with a (single) message. Input should be given in the format described in FILE_FORMATS.txt.

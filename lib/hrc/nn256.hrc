@@ -1,0 +1,180 @@
+` nn256.hrc
+`                         u1      h1
+`                         |       |
+` [CONST][weights][input][hidden][output]
+`  |      |        |      |       |
+`  bb     w0       u0     h0      z0
+
+`[CONST]
+`[w0|h0|ni|nh|nz|tf]
+
+`  bb  = start address of constants
+`  w0  = start address of weights
+`  h0  = start address of hidden layer
+`  ni  = number of  input layer units
+`  nh  = number of hidden layer units
+`  nz  = number of output layer units
+`  tf  = transfer function ('R'=raw,'S'=sigmoid,'T'=tanh)
+
+` REGISTERS
+
+(bb) 0   ` base byte (constants)
+(w)  1   ` weights
+
+[c=10,r=10,s=512,m=512]
+
+`****************************************************************
+` If input fails, set error_flag and return.
+` Otherwise, transfer items to memory location specified on stack.
+` Return (on stack) the first location after the items.
+`****************************************************************
+(scan_item)        `                  ..(i)
+[ i:~.
+ |.>               ` (.) =(i)         ..
+ |s~:              `                  ..<item>
+  }^;              ` [.+]= <item>     ..
+ |<]               `                  ..(i+ni)
+
+`****************************************************************
+` Reg:   (w) = address of first weight (bias)
+` Stack:(j0) = start address of units in (previous) layer
+`       (nj) = number of units in (previous) layer
+` Compute linear function (sum) and return it on stack.
+`****************************************************************
+(forward_node)      `  (w)            ..(j0)(j1)
+[ xc.>x             `  (.) =(j0)
+  (w){^             `  (w+)           ..(j0)(j1)(bias)
+ |x.=x:             `  (.)==(j1)?
+  {^(w){^*+;]       `(sum)+=[.+]*[w+] ..(j0)(j1)(sum)
+
+`****************************************************************
+` Reg:   (w) = address of first weight (bias)
+` Stack:(j0) = start address of units in previous layer
+`       (j1) = final address of units in previous layer
+`       (k0) = start address of units in the next layer
+`       (k1) = final address of units in the next layer
+` Compute linear function for each unit in the next layer,
+` and store them into memory [k0..k1-1].
+`****************************************************************
+(forward_layer)      ` (w)            ..(j0)(j1)(k0)(k1)
+[ x.>                ` (.) =(k0)      ..(j0)(j1)(k1)
+ |.=:                ` (.)==(k1)?
+  y(forward_node)j   `                ..(k1)(j0)(j1)(sum)
+  }^yy;]             ` [.+]=(sum)     ..(j0)(j1)(k1)
+
+`****************************************************************
+` Stack:(k1) = final address of units in layer
+`       (k0) = start address of units in layer
+` Apply sigmoid function to all units in layer [k0..k1-1]
+`****************************************************************
+(sigmoid_layer)      `                ..(k0)(k1)
+[ xc.>x              ` (.) =(k0)      ..(k0)(k1)
+ |=:                 ` (.)==(k1)?
+  {-e1#+r}^;]        ` (.+)
+
+`****************************************************************
+` Stack:(k1) = final address of units in layer
+`       (k0) = start address of units in layer
+` Apply tanh function to all units in layer [k0..k1-1]
+`****************************************************************
+(tanh_layer)         `                ..(k0)(k1)
+[ xc.>x              ` (.) =(k0)      ..(k0)(k1)
+ |=:                 ` (.)==(k1)?
+  {h}^;]             ` (.+)
+
+`****************************************************************
+` Memory: [w0|h0|ni|nh|nz|tf]
+`
+` Compute activations for hidden and output layers.
+`****************************************************************
+`(forward)            `             ..(i0)
+`[ (bb)<.>{(w)>       ` (w) =(w0)
+`  .^{xc{             `             ..(h0)(i0)(i0)(h0)
+`  x^{                `             ..(h0)(i0)(h0)(i0)(ni)
+`  +xc^{              `             ..(h0)(i0)(i1)(h0)(h0)(nh)
+`  +                  `             ..(h0)(i0)(i1)(h0)(h1)
+`  (forward_layer)j   `             ..(h0)(i0)(i1)(h1)
+`  x!xy               `             ..(i0)(h0)(h1)
+`  (sigmoid_layer)j   `             ..(i0)(h0)(h1)
+`  cc^{+              `             ..(i0)(h0)(h1)(z0=h1)(z1=z0+nz)
+`  (forward_layer)j   `             ..(i0)(h0)(h1=z0)(z1)
+`  ^{>                ` (.) =(tf)
+`  ('S')#=!:
+`  ('R')#=!2:.
+` |(sigmoid_layer)j.
+` |(tanh_layer)j]
+
+`****************************************************************
+` Memory: [w0|h0|ni|nh|nz|tf]
+`
+` Compute activations for hidden and output layers.
+`****************************************************************
+(forward)            `             ..(i0)
+[ (bb)<.>{(w)>       ` (w)=(w0)
+  c.^{               `             ..(i0)(i0)(h0)
+  x^{                `             ..(i0)(h0)(i0)(ni)
+  +xc^{              `             ..(i0)(i1)(h0)(h0)(nh)
+  +                  `             ..(i0)(i1)(h0)(h1)
+  (forward_layer)j   `             ..(i0)(i1=h0)(h1)
+  (sigmoid_layer)j   `             ..(i0)(h0)(h1)
+  cc^{+              `             ..(i0)(h0)(h1)(z0=h1)(z1=z0+nz)
+  (forward_layer)j   `             ..(i0)(h0)(h1=z0)(z1)
+  ^{>                ` (.)=(tf)
+  ('S')#=!:          ` sigmoid
+  ('R')#=!2:.        ` raw output
+ |(sigmoid_layer)j.
+ |(tanh_layer)j]     ` tanh
+
+`****************************************************************
+(stack_weights)
+[.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#
+ .00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#
+ .00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#
+ .00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#
+ .00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#
+ .00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#
+ .00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#
+ .00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#
+ .00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#
+ .00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#
+ .00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#
+ .00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#
+ .00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#
+ .00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#
+ .00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#
+ .00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#.00#]
+`****************************************************************
+(store_weights)                      ..(w0)
+[ c.>256#+           ` (.) =(w0)     ..(w1=w0+256)
+  c(w)>v             ` (w) =(w1-1)
+  (stack_weights)j   `               ..(w1)[weights]<weight>
+  .<x                `               ..(w1)[weights](w0)<weight>
+ |(w)}               ` [w] =<weight> ..(w1)[weights](w0)
+  =:                 `(w-)==(w0)?
+  xv;]               `               ..(w1)[weights](w0)<weight>
+
+`****************************************************************
+` Memory: [w0|h0|ni|nh|nz|tf]
+`
+`****************************************************************
+(init)               `               ..(tf)(nz)(nh)
+[ (bb)<.>^^^}        `[bb+3]=(nh)    ..(tf)(nz)
+  ^}                 `  [+.]=(nz)    ..(tf)
+  ^}^<               ` [+.+]=(tf)    ..(w0)
+  (store_weights)j   `               ..(i0=w1)(w0)
+  (bb)<.>}           `  [bb]=(w0)    ..(i0)
+  cc(scan_item)j     `               ..(i0)(i0)(i1=h0)
+  c^}                `  [+.]=(h0)    ..(i0)(i0)(i1)
+  x-+^}]             `  [+.]=(ni)    ..(i0)
+
+`****************************************************************
+(main)
+[ 1#(bb)>            ` (bb)= 1
+  issxsx             `               ..(tf)(nz)(nh)
+  (init)j            `               ..(i0)
+ |(forward)j         `               ..(i0)(h0)(z0)(z1)
+  x.>                ` (.) =(z0)     ..(i0)(h0)(z1)
+ |=:                 ` (.)==(z1)?
+  {^w;               ` (.+)
+ |!!oc               `               ..(i0)
+  (scan_item)j!2;]

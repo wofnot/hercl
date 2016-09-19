@@ -1,0 +1,16 @@
+------ CROSS VALIDATION ------
+
+how to run supervised learning with 10-fold cross-validation
+
+cd super/data/xval
+./gen_fold.sh promoters A
+cd promoters/A
+../../run1.sh promoters a
+../../extract > promotersA.hrc
+../../cross_check.sh promoters 10 1
+
+to do 15 runs and ensemble the results:
+
+../../run_many.sh promoters
+../../extract > promotersA.hrc
+../../cross_check.sh promoters 10 15

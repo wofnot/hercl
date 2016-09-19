@@ -1,0 +1,36 @@
+------ PARALLEL ------
+
+----- Basics -----
+
+Both supervised and interactive mode support the use of multiple threads working in parallel.
+By default, the threads contribute to a shared library of code, allowing successful code to propagate between threads.
+
+To run evolution in parallel you must have openMPI installed.
+
+By default, processes are arranged in a 'star' network - one master process relays communication between worker processes.
+The executable for the master process is bin/master and it can be built via:
+make -C src/base master
+
+To run 4 worker processes in parallel, working on the ionosphere dataset:
+mpirun -n 1 bin/master : -n 4 bin/hercsearch -S ionosphere_4.list
+
+Note: the tasks in the list file need not be the same; workers can work on different but related tasks.
+Each line of the list file specifies a single data file, followed by any relevant flags (e.g. -n). Ideally the number of lines should be equal to the number of non-master processes, but otherwise the tasks will be distributed across processes.
+
+To run 47 workers working on the square_env task:
+mpirun -n 1 bin/master : -n 47 bin/square_env -m 47 -n -j
+the -m flag must be provided for parallel interactive learning.
+
+Other relevant flags (both hercsearch and interactive):
+  -j specifies that as soon as one process has entered the trimming phase (a solution has been found), the others will halt.
+  -x disables code-sharing between processes.
+  
+----- Topology -----
+
+The network topology can also be changed. Currently there are 2 options, 'star', or 'all to all'. 'All to all' removes the need for a dedicated master process but is much slower for large numbers of processes (>10).
+To choose the mode, change the #define NETWORK_TYPE line near the top of message.h.
+#define NETWORK_TYPE ALL_TO_ALL
+or
+#define NETWORK_TYPE STAR_NETWORK
+
+This affects code in message.c, super.c and interact.c so make sure you recompile.

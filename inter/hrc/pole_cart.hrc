@@ -1,0 +1,116 @@
+` pole_cart.hrc
+
+`[x|x'|H|H'|mc|mp|l|g]
+` |
+`(bb)
+
+` x  = displacement
+` x' = derivative of dispalcement
+` H  = angle
+` H' = derivative of angle
+` mc = mass of cart
+` mp = mass of pole
+` l  = length of pole
+` g  = acceleration due to gravity
+
+` REGISTERS
+(x")       0  ` second derivative of distance
+(H")       1  ` second derivative of angle
+(F)        2  ` control force
+(bb)       3
+(H'^2sinH) 4
+(mc+mp)    5
+(xmin)     6
+(xmax)     7
+(Hmin)     8
+(Hmax)     9
+
+[c=9,r=10,s=64,m=256,b=10]
+`*************************************************************
+`[x|x'|H|H'|mc|mp|l|g]
+`*************************************************************
+(compute H")
+[ (bb)<.>^^{^1#t                 ` ..(sin H)(cos H)
+  xcy{^c**(H'^2sinH)>
+  .{^{+(mc+mp)>
+  cc*.{^*(mc+mp)<r*-4#3#r*+.{v*ry `..(1/denom)(sinH)(cosH)
+  {^{^*(H'^2sinH)<*(F)<+-
+  (mc+mp)<r**x.{*+*(H")>]
+
+`*************************************************************
+`[x|x'|H|H'|mc|mp|l|g]
+`*************************************************************
+(compute x")
+[ (bb)<.>^^{^^^1#tx!             ` ..(cos H)
+  (H")<*-(H'^2sinH)<+.{^{**(F)<+
+  (mc+mp)<r*(x")>]
+
+`****************************************************************
+` Scan two values, compute a random number uniformly
+` distributed between them, and leave it on the stack.
+`****************************************************************
+(random val)
+[ sc-s+?*+ ]
+
+`****************************************************************
+` Scan a message in this format:
+`[x0|x1|x'0|x'1|H0|H1|H'0|H'1|xmin|xmax|Hmin|Hmax|Tmax|tau|mc|mp|l|g]
+` Generate random initial values for x,x',H,H' uniformly within the
+` specified ranges. Store xmin,xmax,Hmin,Hmax to registers,
+` push T,tau to the stack, and store x,x',H,H',mc,mp,l,g to memory:
+` [x|x'|H|H'|mc|mp|l|g]
+`****************************************************************
+(init)
+[ (bb)<.>i
+  (random val)j}^  ` store random x
+  (random val)j}^  ` store random x'
+  (random val)j}^  ` store random H
+  (random val)j}^  ` store random H'
+  s(xmin)>s(xmax)>
+  s(Hmin)>s(Hmax)>
+  sss.}^s}^s}^s}]                  `..(T)(tau)
+
+`****************************************************************
+` If x is outside the range xmin <= x <= xmax,
+` or H is outside the range Hmin <= H <= Hmax,
+` halt execution with remaining time (T) on top of stack (cost)
+`****************************************************************
+(check state)                      `..(T)(tau)
+[ (bb)<.>{^^(xmin)g2:(xmax)=:g~2:
+ |!.{(Hmin)g1:(Hmax)=:g~1:
+ |!.
+ |!x8]
+
+`****************************************************************
+` Update time (T). If it has run out, halt execution with
+` zero on top of stack (cost)
+`****************************************************************
+(check time)
+[cy-+.g~x:#8]                 ` if time exceeded, halt with zero
+
+`****************************************************************
+` Send a message in this form: [x|x'|H|H']
+`****************************************************************
+(send state)
+[ (bb)<.>{^w{^w{^w{^wo ]
+
+`****************************************************************
+` [x|x'|H|H']
+`****************************************************************
+(update state)                     `..(tau)
+[ (bb)<.>cc{^x{v*+}^{x(x")<*+.}^
+         cc{^x{v*+}^{x(H")<*+.}]
+
+`****************************************************************
+(main)
+[ 1#(bb)>(init)j                   `..(T)(tau)
+ |(check state)j
+  (check time)j
+  (send state)j
+  i:x~.
+ |s:x~.
+ |10#x
+ `2#r.>
+  .g~!:-
+ |(F)>(compute H")j
+      (compute x")j(update state)j3;]

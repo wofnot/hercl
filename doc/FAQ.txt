@@ -1,0 +1,58 @@
+------ FREQUENTLY ASKED QUESTIONS ------
+     
+------------------------------------------------------------------------------
+
+What are all the weird numbers and letters outputted while hercsearch runs?
+
+often, hercsearch will print statements that look like this while running:
+
+KI /15,       9.00    1153.00 200149 2528368
+[c=2,r=10,s=64,m=64]
+ 0[]
+ 1[iss1.2#s|>g~<:r+s;{|h+zwo]
+
+here is what these numbers and letter mean:
+
+<status> /<inputs>, <training_cost> <test_cost> <agents> <tests run>
+ <agent header (not always displayed)>
+ <agent code>
+
+
+status: the event that caused this message to be displayed. For instance:
+  II - The agent succesfully completed more than one test for the first time
+  JI - The agent completed a number of tests without needing to mutate any more
+  KI - The agent failed a test
+  SI - The agent failed tests a prior version of it had passed
+  TI - the agent was succesful on all trials, and has been trimmed. Evolution is finished.
+  FI - the agent was successful on all trials, but has not been trimmed
+  LI - ??? (something to do with trimming?)
+  MI - Maximum evaluations exceeded
+
+inputs: the number of inputs (tests) the agent was tested on
+
+training cost: a numerical measure of how inaccurate the champion agent was compared to the expected outputs, on the training data (data is training data by default).
+
+test cost: same as training cost, but with test data instead.
+
+agents (ncomp): the total number of agents evaluated so far in this process
+
+tests run (neval): the total number of tests run so far in this process (note that some agents may not run the full test set if they are over the target cost)
+
+------------------------------------------------------------------------------
+
+Why does evolution fail to solve my problem?
+
+There are many reasons this might be the case. Some fixable ones:
+
+1. Expecting the program to find exact solutions to problems with a floating point output
+  It is very difficult for programs to evolve to give floating point output exactly the same as an expected output. Set a small tolerance using the -t flag, or implement a tolerance in your environment code.
+
+2. Cost function encourages suboptimal strategies for solving problems (local minima in the cost function)
+
+3. Failure to provide a config file to an environment which requires one (e.g. pole_cart, double_pole)
+
+4. Incorrectly formatted data for supervised learning: note that ",3" and "3" are interpreted differently. ",3" is the integer 3, whereas "3" is the ASCII character '3' (i.e. has an integer value of 51). Anything without a comma preceding it (or with a comma escaped with \) is considered a string literal, but integer, floating point, and scientific notation values preceded by an unescaped comma are treated as numerical data.
+
+------------------------------------------------------------------------------
+
+
