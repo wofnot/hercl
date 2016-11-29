@@ -23,16 +23,13 @@
 
 #define   SWAP_FAILS       1
 
-#define   RESHUFFLE_FAILS  6
-
 #define   MAX_TASK        64
 
-Boolean  evolve_interact(int train_comparisons,Boolean incremental,
-                         int trim_int,Ladder *lad,Channel *env_cfg,
-                         Channel *agt_cfg,Channel *env_out,Channel *agt_out,
-                         Channel *agt_out_prev,int reactive,int rank[],
-                         long seed[],int max_trials,double item_cost,
-                         Library *lib,FILE *fo);
+Boolean  evolve_interact(Boolean incremental,int trim_int,Ladder *lad,
+                         Channel *env_cfg,Channel *agt_cfg,Channel *env_out,
+                         Channel *agt_out,Channel *agt_out_prev,
+                         int reactive,int rank[],long seed[],int max_trials,
+                         double item_cost,Library *lib,FILE *fo);
 
 Boolean    trim_interact(int trim_comparisons,Ladder *lad,Channel *env_cfg,
                          Channel *agt_cfg,Channel *env_out,Channel *agt_out,
@@ -81,7 +78,7 @@ void tune_interact(
   Level    level_interp={INTERP,NON_ALIGNED};
   Boolean  top_is_better;
   int tune_comparisons=10000;
-  int prev_trials,num_trials,num_fails=0;
+  int prev_trials,num_trials;
   int epoch=0;
   int cmp;
   int r;
@@ -125,6 +122,7 @@ void tune_interact(
     compare_interact(lad,env_state,env_cfg,agt_cfg,env_out,agt_out,
                      agt_out_prev,par->reactive,rank,seed,
                      num_trials,par->max_trials,par->item_cost,fo);
+
     prev_trials = num_trials;
 
     cmp=0;
@@ -142,10 +140,7 @@ void tune_interact(
 
       if( top(lad)->score.num_trials > num_trials ) {// incremental
         num_trials = top(lad)->score.num_trials; // increment trials
-        rank[0] = rank[num_trials]; // bring new seed to front
-        for( r = num_trials; r >= 1; r-- ) {
-          rank[r] = rank[r-1];
-        }
+        bring_to_front( rank,num_trials );
         cmp = tune_comparisons; // break out of loop
       }
       if( top_is_better ) {
@@ -179,16 +174,9 @@ void tune_interact(
     }
 #endif
 #ifdef RESHUFFLE_FAILS
-    if( top(lad)->score.num_trials > num_trials ) {
-      num_fails = 0;
-    }
-    else if( num_trials < par->max_trials ) {
-      num_fails++;
-      if( num_fails >= RESHUFFLE_FAILS ) {
-        shuffle_seeds( par->max_trials,seed );
-        top(lad)->score.num_trials = par->min_trials;
-        num_fails = 0;
-      }
+    if(check_reshuffle(lad,par->min_trials,prev_trials,
+                       num_trials,par->max_trials)) {
+      shuffle_seeds( par->max_trials,seed );
     }
 #endif
     if( !par->silent ) {
@@ -242,10 +230,11 @@ void search_interact(
   Channel *agt_out_prev;
   int     *rank;
   FILE    *fo = par->silent ? NULL : stdout;
-  int num_trials,num_fails=0;
-  int max_child = 10000;
+  int prev_trials;
   int epoch=0;
   int r;
+
+  lad->max_child_per_epoch = 10000;
 
   if( par->reactive ) {
     is_allowed[(int)BRB] = FALSE;
@@ -254,6 +243,8 @@ void search_interact(
     top(lad)->score.num_trials = par->min_trials;
   }
   top(lad)->score.successful = FALSE; // force initial loop cycle
+
+  random_codebank( lad,128 );
 
   env_out      = new_channel();
   agt_out      = new_channel();
@@ -266,51 +257,37 @@ void search_interact(
   }
 
   while(                            epoch < par->max_epoch
-        &&                          neval < globals.max_eval
+        &&                     lad->neval < globals.max_eval
         &&(    top(lad)->score.num_trials < par->max_trials
            || !top(lad)->score.successful )) {
 
     epoch++;
 
-    num_trials = top(lad)->score.num_trials;
-    evolve_interact(max_child,par->incremental,par->trim_interim,lad,
-               env_cfg,agt_cfg,env_out,agt_out,agt_out_prev,par->reactive,
+    prev_trials = top(lad)->score.num_trials;
+    evolve_interact(par->incremental,par->trim_interim,lad,env_cfg,
+               agt_cfg,env_out,agt_out,agt_out_prev,par->reactive,
                rank,seed,par->max_trials,par->item_cost,lib,fo);
 
-    if( top(lad)->score.num_trials > num_trials ) {
-      max_child -= 500;
-      if( max_child < 10000 ) {
-        max_child = 10000;
-      }
-    }
-    else if( num_trials < par->max_trials ) {
-      max_child += 500;
-    }
+    adjust_max_child( lad,prev_trials,par->max_trials );
+
 #ifdef RESHUFFLE_FAILS
-    if( top(lad)->score.num_trials > num_trials ) {
-      num_fails = 0;
-    }
-    else if( num_trials < par->max_trials ) {
-      num_fails++;
-      if( num_fails >= RESHUFFLE_FAILS ) {
-        shuffle_seeds( par->max_trials,seed );
-        top(lad)->score.num_trials = par->min_trials;
-        move_to_codebank( lad,CHAMP-1 );
-        max_child += 2000;
-        num_fails = 0;
-      }
+    if(check_reshuffle(lad,par->min_trials,prev_trials,
+                top(lad)->score.num_trials,par->max_trials)) {
+      shuffle_seeds( par->max_trials,seed );
+      move_to_codebank( lad,CHAMP-1 );
+      lad->max_child_per_epoch += 2000;
     }
 #endif
   }
   
-  if (neval < globals.max_eval) {
+  if ( lad->neval < globals.max_eval ) {
     if( !par->silent ) {
       printf("FI ");
       if( par->incremental ) {
         printf("/%d,",top(lad)->score.num_trials);
       }
       print_score( top(lad),stdout );
-      printf(" %lld %lld\n",ncomp,neval);
+      printf(" %lld %lld\n",lad->ncomp,lad->neval);
       print_code( top(lad)->agt->cd,stdout );
   #ifdef PRINT_HISTOGRAM
       if( globals.verbose ) {
@@ -328,7 +305,7 @@ void search_interact(
     if( !par->silent ) {
       printf("TI ");
       print_score( top(lad),stdout );
-      printf(" %lld %lld\n",ncomp,neval);
+      printf(" %lld %lld\n",lad->ncomp,lad->neval);
       printf("*** TASK SOLVED AT EPOCH %d ***\n",epoch );
     }
   } else {
@@ -337,7 +314,7 @@ void search_interact(
     if( !par->silent ) {
       printf("MI ");
       print_score( top(lad),stdout );
-      printf(" %lld %lld\n",ncomp,neval);
+      printf(" %lld %lld\n",lad->ncomp,lad->neval);
     }
   }
 
@@ -361,16 +338,11 @@ void multi_instance_interact(
 {
   // these are all for local tasks only:
   FILE            *fo[MAX_TASK]={NULL};
-//  Channel *agt_cfg[MAX_TASK]={NULL};
+ //  Channel *agt_cfg[MAX_TASK]={NULL};
   Ladder         *lad[MAX_TASK];
   int           *rank[MAX_TASK];
   Boolean incremental[MAX_TASK]={FALSE};
   Boolean      solved[MAX_TASK]={FALSE};
-  Long         ncomp_[MAX_TASK]={0};
-  Long         neval_[MAX_TASK]={0};
-  int     num_trials_[MAX_TASK]={0};
-  int      num_fails_[MAX_TASK]={0};
-  int      max_child_[MAX_TASK];
   Channel *env_out;
   Channel *agt_out;
   Channel *agt_out_prev;
@@ -384,7 +356,7 @@ void multi_instance_interact(
   
   long    seed[MAX_SEEDS];
   //int max_trials=1000;
-
+  int prev_trials;
   int epoch=0;
   int d,r,i;
   
@@ -395,7 +367,8 @@ void multi_instance_interact(
     lib->code_base = lib->num_code;
   }
   for( d=0; d < MAX_TASK; d++ ) {
-    max_child_[d] = 0;
+    lad[d]->max_child_per_epoch = 10000;
+    random_codebank( lad[d],128 );
   }
 
   env_out      = new_channel();
@@ -527,27 +500,23 @@ void multi_instance_interact(
       if( !solved[d] ) {
 
         if( halt && globals.terminate_early ) {
-          print_termination(lad[d],ncomp_[d], neval_[d], epoch, i, fo[d]);
+          print_termination(lad[d],lad[d]->ncomp,lad[d]->neval,
+                            epoch, i, fo[d]);
           solved[d] = TRUE;
           continue;
         }
         
         keep_going = TRUE;
 
-        ncomp = ncomp_[d];
-        neval = neval_[d];
-
         clear_message(agt_out,1);
         clear_message(agt_out_prev,1);
 
-        halt |= evolve_interact(max_child_[d],incremental[d],inter_par->trim_interim,
+        prev_trials = top(lad[d])->score.num_trials;
+        halt |= evolve_interact(incremental[d],inter_par->trim_interim,
                                 lad[d],env_cfg,NULL,env_out,agt_out,agt_out_prev,
                                 inter_par->reactive,rank[d],seed,inter_par->max_trials,
                                 inter_par->item_cost,lib,fo[d]);
            // agt_cfg or NULL?
-
-        ncomp_[d] = ncomp;
-        neval_[d] = neval;
 
         champ = cross_mutate( top(lad[d])->agt->cd,NULL,level_copy );
         insert_library( lib,lib->code_base+i,champ );
@@ -559,39 +528,26 @@ void multi_instance_interact(
 #endif
         //fprintf(fo[d], "Library:\n");
         //print_library(lib, fo[d]);
-        
+        /*
         if ( incremental[d] ) {
           if( top(lad[d])->score.num_trials > num_trials_[d] ) {
             num_trials_[d] = top(lad[d])->score.num_trials;
           }
         }
+        */
+        adjust_max_child( lad[d],prev_trials,inter_par->max_trials );
 
-        if( top(lad[d])->score.num_trials > num_trials_[d] ) {
-          max_child_[d] -= 2000;
-          if( max_child_[d] < 10000 ) {
-            max_child_[d] = 10000;
-          }
-        }
-        else if( num_trials_[d] < inter_par->max_trials ) {
-          max_child_[d] += 1000;
-        }
 #ifdef RESHUFFLE_FAILS
-        if( top(lad[d])->score.num_trials > num_trials_[d] ) {
-          num_fails_[d] = 0;
-        }
-        else if( num_trials_[d] < inter_par->max_trials ) {
-          num_fails_[d]++;
-          if( num_fails_[d] >= RESHUFFLE_FAILS ) {
-            shuffle_seeds( inter_par->max_trials,seed );
-            top(lad[d])->score.num_trials = inter_par->min_trials;
-            move_to_codebank( lad[d],CHAMP-1 );
-            max_child_[d] += 1000;
-          }
+        if(check_reshuffle(lad[d],inter_par->min_trials,prev_trials,
+                top(lad[d])->score.num_trials,inter_par->max_trials)) {
+          shuffle_seeds( inter_par->max_trials,seed );
+          move_to_codebank( lad[d],CHAMP-1 );
+          lad[d]->max_child_per_epoch += 2000;
         }
 #endif
         // TODO: alter output when max_eval is exceeded
-        if(           neval_[d] >= globals.max_eval
-           ||(   num_trials_[d] >= inter_par->max_trials
+        if(       lad[d]->neval >= globals.max_eval
+           ||(   top(lad[d])->score.num_trials >= inter_par->max_trials
               && top(lad[d])->score.successful )) {
 
           solved[d] = TRUE;
@@ -600,7 +556,7 @@ void multi_instance_interact(
             fprintf(fo[d], "/%d,",top(lad[d])->score.num_trials);
           }
           print_score( top(lad[d]),fo[d] );
-          fprintf(fo[d]," %lld %lld\n",ncomp_[d],neval_[d]);
+          fprintf(fo[d]," %lld %lld\n",lad[d]->ncomp,lad[d]->neval);
           print_code( top(lad[d])->agt->cd,fo[d] );
           fflush( fo[d] );
 
@@ -629,25 +585,22 @@ void multi_instance_interact(
 
             fflush( fo[d] );
 
-            ncomp = ncomp_[d];
-            neval = neval_[d];
             fin = trim_interact(inter_par->trim_final,lad[d],env_cfg, // agt_cfg or NULL
                    agt_cfg,env_out,agt_out,agt_out_prev,inter_par->reactive,
                    rank[d],seed,inter_par->max_trials,inter_par->item_cost,fo[d]);
-            ncomp_[d] = ncomp;
-            neval_[d] = neval;
-          } else {
+          }
+          else {
             fin = FALSE;
           }
           
           if( !fin ){ // Trimming terminated early (i.e. didn't finish)
-            print_termination(lad[d], ncomp, neval, 
-                              epoch, d+interval_start, fo[d]);
+            print_termination(lad[d],lad[d]->ncomp,lad[d]->neval, 
+                              epoch,d+interval_start,fo[d]);
           } else {
             // Trimming finished, thus this is the actual solution
             fprintf(fo[d],"TI ");
             print_score( top(lad[d]),fo[d] );
-            fprintf(fo[d]," %lld %lld\n",ncomp_[d],neval_[d]);
+            fprintf(fo[d]," %lld %lld\n",lad[d]->ncomp,lad[d]->neval);
             print_code( top(lad[d])->agt->cd,fo[d] );
             
             fprintf(fo[d],"*** TASK %d SOLVED AT EPOCH %d ***\n",
@@ -688,7 +641,6 @@ void multi_instance_interact(
    Returns false if terminated early by another process
 */
 Boolean evolve_interact(
-                        int      max_child,
                         Boolean  incremental,
                         int      trim_int,
                         Ladder  *lad,
@@ -710,7 +662,6 @@ Boolean evolve_interact(
   Boolean top_is_better;
   int prev_trials,num_trials;
   int child=0;
-  int r;
 
   env_state = new_env_state();
 
@@ -736,7 +687,7 @@ Boolean evolve_interact(
   
   Boolean halt = FALSE;
 
-  while(  ( child < max_child || pop(lad) != NULL )
+  while(  ( child < lad->max_child_per_epoch || pop(lad) != NULL )
         &&(    top(lad)->score.num_trials < max_trials
            || !top(lad)->score.successful )) {
 #ifdef USE_MPI
@@ -769,11 +720,8 @@ Boolean evolve_interact(
     if( incremental ) {
       if( top(lad)->score.num_trials > num_trials ) {
         num_trials = top(lad)->score.num_trials;
-        rank[0] = rank[num_trials]; // bring new item to front
-        for( r = num_trials; r >= 1; r-- ) {
-          rank[r] = rank[r-1];
-        }
-        child = max_child; // break out of loop
+        bring_to_front( rank,num_trials );
+        child = lad->max_child_per_epoch; // break out of loop
       }
     }
     while( top_is_better ) {
@@ -797,7 +745,7 @@ Boolean evolve_interact(
     fprintf(fo, "KI ");
     fprintf(fo, "/%d,",top(lad)->score.num_trials);
     print_score( top(lad),fo );
-    fprintf(fo, " %lld %lld\n",ncomp,neval);
+    fprintf(fo, " %lld %lld\n",lad->ncomp,lad->neval);
     if( top(lad)->agt->cd->num_cells == 1 ) {
       print_cell( top(lad)->agt->cd,0,fo );
     }
@@ -946,7 +894,7 @@ Boolean compare_interact(
   int prev_trials = num_trials;
   int r=0;
 
-  ncomp++;
+  lad->ncomp++;
 
   reset_score( can );
   clear_message(agt_out,1);
@@ -959,6 +907,7 @@ Boolean compare_interact(
     eval_seed = seed[rank[r]];
     init_evaluation_state(seed[rank[r]]);
 
+    lad->neval++;
     if( reactive ) {
       eval_inter_react( can,env_state,env_cfg,agt_cfg,
                         env_out,agt_out,agt_out_prev,r );
@@ -1012,6 +961,7 @@ Boolean compare_interact(
         eval_seed = seed[rank[r]];
         init_evaluation_state(seed[rank[r]]);
 
+        lad->neval++;
         if( reactive ) {
           eval_inter_react( can,env_state,env_cfg,agt_cfg,
                             env_out,agt_out,agt_out_prev,r );
@@ -1066,8 +1016,6 @@ void test_interact(
                    int        max_trials
                   )
 {
-  Long neval0 = neval; // exclude these (diagnostic) evaluations
-  Long ncomp0 = ncomp; // and comparisons from the overall count
   int r=0;
 
   clear_message(agt_out,1);
@@ -1078,6 +1026,7 @@ void test_interact(
     eval_seed = seed[r];
     init_evaluation_state(seed[r]);
 
+    //lad->neval++;
     if( reactive ) {
       eval_inter_react( can,env_state,env_cfg,agt_cfg,
                         env_out,agt_out,agt_out_prev,r );
@@ -1091,9 +1040,6 @@ void test_interact(
     //printf("all outputs same, adding penalty\n");
     can->score.penalty += 1.0;
   }
-
-  neval = neval0;      // restore the previous values
-  ncomp = ncomp0;
 
   restore_mutation_state();// otherwise same agent bred repeatedly
 }
@@ -1121,7 +1067,7 @@ void eval_inter_react(
   int max_agt_step;
   int op = NONE;
 
-  neval++;
+  //neval++;
 
   max_agt_step = AGT_STEPS_PER_MOVE;
 
@@ -1249,7 +1195,7 @@ void eval_inter_recur(
   int max_agt_step;
   int op=NONE;
 
-  neval++;
+  //neval++;
 
   max_agt_step = 10 * AGT_STEPS_PER_MOVE;
 

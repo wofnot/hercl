@@ -37,11 +37,6 @@ Code   *mate_from_lib(Library *lib);
 Code   *mate_from_lad(Ladder *lad,Level level);
 Level    choose_level(Ladder *lad,Library *lib);
 
-//int  cycle=0; // evolutionary cycle (when searching)
-
-Long ncomp=0; // total number of fitness comparisons
-Long neval=0; // total number of items evaluated
-
 #ifdef MAX_TRACE
 #define FAIL_TRACE  1
 int  print_trace = FALSE;
@@ -640,7 +635,7 @@ void add_to_library( Library *lib, Code *cd )
 
 /********************************************************//**
    Insert new code into library in a logarithmic fashion,
-   and return the index of the newly inserted code.
+   and set lib->index to index of the newly inserted code.
 */
 void log_library( Library *lib, Code *cd )
 {
@@ -654,6 +649,7 @@ void log_library( Library *lib, Code *cd )
         if(          lib->code[index]->last_codon == cd->last_codon
            && strcmp(lib->code[index]->codon,cd->codon) == 0 ) {
           free_code( cd ); // identical code already in library
+          lib->index = -1; // new code not inserted
           return;
         }
         index++;
@@ -680,6 +676,10 @@ Ladder * new_ladder( int max_bank )
   lad = (Ladder *)malloc(sizeof(Ladder));
   check_null( lad );
   lad->max_bank   = max_bank; // max number of codes in bank, per level
+  lad->max_child_per_epoch = 10000;
+  lad->num_fails = 0;
+  lad->ncomp = 0;
+  lad->neval = 0;
   /*
     total_candidates[s][m][g] is the total number of candidates at step s,
     with mutation level m and transgenic level g.
@@ -819,6 +819,56 @@ void reset_ladder( Ladder *lad, Code *cd )
   }
 #endif
 }
+
+/********************************************************//**
+   Adjust max_child_per_epoch, according to num_trials,prev_trials
+*/
+void adjust_max_child(
+                      Ladder *lad,
+                      int prev_trials,
+                      int max_trials
+                     )
+{
+  if( top(lad)->score.num_trials > prev_trials ) {
+    lad->max_child_per_epoch -= 500;
+    if( lad->max_child_per_epoch < 10000 ) {
+      lad->max_child_per_epoch = 10000;
+    }
+  }
+  else if( prev_trials < max_trials ) {
+    lad->max_child_per_epoch += 500;
+  }
+}
+
+#ifdef RESHUFFLE_FAILS
+/********************************************************//**
+   Check whether the data need to be reschuffled
+*/
+Boolean check_reshuffle(
+                        Ladder *lad,
+                        int min_trials,
+                        int prev_trials,
+                        int num_trials,
+                        int max_trials
+                       )
+{
+  Boolean reshuffle = FALSE;
+  lad->adapting = TRUE; // any time except first epoch after reshuffle
+  if( num_trials > prev_trials ) {
+    lad->num_fails = 0;
+  }
+  else if( num_trials < max_trials ) {
+    lad->num_fails++;
+    if( lad->num_fails >= RESHUFFLE_FAILS ) {
+      top(lad)->score.num_trials = min_trials;
+      lad->num_fails = 0;
+      lad->adapting = FALSE; // first epoch after reshuffle
+      reshuffle = TRUE;
+    }
+  }
+  return( reshuffle );
+}
+#endif
 
 /********************************************************//**
    Free the contents and all space occupied by the codebank.
@@ -1621,6 +1671,18 @@ void shuffle_seeds(
   }
   free( rank );
   free( seed0 );
+}
+
+/********************************************************//**
+   Bring n-th item to front of array, and rotate other items
+*/
+void bring_to_front( int rank[], int n )
+{
+  int r;
+  rank[0] = rank[n]; // bring this item to front
+  for( r = n; r >= 1; r-- ) {
+    rank[r] = rank[r-1];
+  }
 }
 
 #ifdef RESERVE_CHAMP

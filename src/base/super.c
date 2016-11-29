@@ -28,20 +28,31 @@
 
 #define   SWAP_FAILS     1
 
-#define   RESHUFFLE_FAILS  6
-
 #define   MAX_TASK        64
 
 void       super_options(char line[]);
-Boolean     evolve_super(int max_child,Boolean incremental,int trim_int,
-                         Ladder *lad,Super *sup,Channel *agt_cfg,Channel *out,
-                         int rank[],Library *lib,FILE *fo);
+void     super_prep_data(Boolean incremental,Search_Param *par,
+                         Super *sup,int *rank,FILE *fp);
+void   super_prep_ladder(Search_Param *par,Super *sup,Ladder *lad,FILE *fo);
+void    super_trim_phase(Search_Param *par,Ladder *lad,Super *sup,
+                         Channel *agt_cfg,Channel *out,int *rank,FILE *fo);
+Boolean     evolve_super(Boolean incremental,int trim_int,Ladder *lad,
+                         Super *sup,Library *crit,Channel *agt_cfg,
+                         Channel *out,int rank[],Library *lib,FILE *fo);
 Boolean       trim_super(int trim_comparisons,Ladder *lad,Super *sup,
                          Channel *agt_cfg,Channel *out,int rank[],FILE *fo);
-Boolean    compare_super(Ladder *lad,Super *sup,Channel *agt_cfg,Channel *out,
-                         int rank[],int set,int num_trials,FILE *fo);
+Boolean    compare_super(Ladder *lad,Super *sup,Library *crit,Channel *agt_cfg,
+                         Channel *out,int rank[],int set,int num_trials,FILE *fo);
+void          crit_super(Candidate *can,Super *sup,Library *crit,Agent *agt,
+                         Channel *agt_cfg,int *tset,int r,Channel *out,int o);
+//double         crit_eval(Candidate *can,Channel *agt_cfg,
+//                         Super *sup,int m,Channel *out,int o);
+void          run_critic(Agent *agt,Channel *agt_cfg,
+                         Super *sup,int m,Channel *out,int o);
 int     choose_cost_type(Channel *target,int total_items);
 void       shuffle_super(Super *sup);
+void print_train_test_fitness(char *str,Super *sup,Ladder *lad,
+                         Channel *agt_cfg,Channel *out,FILE *fp);
 void print_train_fitness(Super *sup,Ladder *lad,FILE *fo );
 void  print_test_fitness(Super *sup,Ladder *lad,Channel *agt_cfg,
                          Channel *out,FILE *fo);
@@ -71,27 +82,21 @@ void tune_super(
   Boolean  top_is_better;
   int tune_comp   = 10000;
   int refine_comp =  2000;
-  int prev_trials,num_trials,num_fails=0;
+  int prev_trials,num_trials;
   int epoch=0;
   int cmp;
-  int r;
+
+  rank = (int *)malloc((sup->train_items+1)*sizeof(int));
+  check_null( rank );
 
   if( !par->silent ) {
     printf("tune super...\n");
     fflush( stdout );
   }
-  if( par->incremental ) {
-    shuffle_super( sup );
-  }
-  if( par->item_cost >= 0.0 ) {
-    sup->item_cost = par->item_cost;
-  }
-  if( par->cost_type != NONE ) {
-    sup->cost_type = par->cost_type;
-  }
-  if( globals.verbose ) {
-    print_super( sup,stdout );
-  }
+  super_prep_data( par->incremental,par,sup,rank,stdout );
+
+  //is_allowed[(int)BRB] = (    sup->cost_type == LED
+  //                        || !sup->inputs_same_length );
 
   // NO register_features option
   sup->register_features = FALSE;
@@ -99,16 +104,7 @@ void tune_super(
   if( par->incremental ) {
     top(lad)->score.num_trials = par->min_trials;
   }
-  top(lad)->score.penalty = 1.0; // force initial loop cycle
-
-  rank = (int *)malloc((sup->train_items+1)*sizeof(int));
-  check_null( rank );
-  for( r=0; r <= sup->train_items; r++ ) {
-    rank[r] = r;
-  }
-
-  is_allowed[(int)BRB] = (    sup->cost_type == LED
-                          || !sup->inputs_same_length );
+  top(lad)->score.successful = FALSE;
 
   if( par->incremental ) {
     num_trials = top(lad)->score.num_trials;
@@ -117,7 +113,7 @@ void tune_super(
     num_trials = sup->train_items;
   }
   // this happens twice the first time through the loop, but that's ok
-  compare_super(lad,sup,agt_cfg,out,rank,TRAIN,num_trials,fo);
+  compare_super(lad,sup,NULL,agt_cfg,out,rank,TRAIN,num_trials,fo);
 
   while(       epoch < par->max_epoch
         &&(    top(lad)->score.num_trials < sup->train_items
@@ -125,7 +121,8 @@ void tune_super(
     epoch++;
 
     num_trials = top(lad)->score.num_trials;
-    compare_super( lad,sup,agt_cfg,out,rank,TRAIN,num_trials,fo );
+    compare_super(lad,sup,NULL,agt_cfg,out,rank,TRAIN,num_trials,fo);
+
     prev_trials = num_trials;
 
     cmp=0;
@@ -137,15 +134,13 @@ void tune_super(
 
       breed( lad,NULL,level_tune );
 
-      top_is_better = compare_super(lad,sup,agt_cfg,out,
+      top_is_better = compare_super(lad,sup,NULL,agt_cfg,out,
                                     rank,TRAIN,num_trials,fo);
 
       if( top(lad)->score.num_trials > num_trials ) {// incremental
         num_trials = top(lad)->score.num_trials; // increment trials
-        rank[0] = rank[num_trials]; // bring new item to front
-        for( r = num_trials; r >= 1; r-- ) {
-          rank[r] = rank[r-1];
-        }
+        bring_to_front( rank,num_trials );
+        rank[0] = rank[num_trials];
         cmp = tune_comp; // break out of loop
       }
       if( top_is_better ) {
@@ -160,7 +155,7 @@ void tune_super(
           top_replace_pop( lad,fo );
           num_trials = top(lad)->score.num_trials;
           //reset_score(top(lad));
-          top_is_better = compare_super(lad,sup,agt_cfg,out,
+          top_is_better = compare_super(lad,sup,NULL,agt_cfg,out,
                                         rank,TRAIN,num_trials,fo);
           num_trials = top(lad)->score.num_trials;
         }
@@ -179,26 +174,15 @@ void tune_super(
     }
 #endif
 #ifdef RESHUFFLE_FAILS
-    //if( top(lad)->score.num_trials > num_trials ) {
-    if( num_trials > prev_trials ) {
-      num_fails = 0;
-    }
-    else if( num_trials < sup->train_items ) {
-      num_fails++;
-      if( num_fails >= RESHUFFLE_FAILS ) {
-        printf("XX %d",sup->train_set[rank[1]]);
-        printf(" %d\n",sup->train_set[rank[num_trials+1]]);
-        shuffle_super( sup );
-        top(lad)->score.num_trials = par->min_trials;
-        num_fails = 0;
-      }
+    if( check_reshuffle(lad,par->min_trials,prev_trials,
+                        num_trials,sup->train_items)) {
+      printf("XX %d",sup->train_set[rank[1]]);
+      printf(" %d\n",sup->train_set[rank[num_trials+1]]);
+      shuffle_super( sup );
     }
 #endif
     if( !par->silent ) {
-      printf("KI ");
-      print_train_fitness( sup,lad,stdout );
-      print_test_fitness( sup,lad,agt_cfg,out,stdout );
-      printf(" %lld %lld\n",ncomp,neval);
+      print_train_test_fitness("KI",sup,lad,agt_cfg,out,stdout);
       if( top(lad)->agt->cd->num_cells == 1 ) {
         print_cell( top(lad)->agt->cd,0,stdout );
       }
@@ -209,16 +193,15 @@ void tune_super(
       fflush( stdout );
     }
   }
+
+
   if( !par->silent ) {
     if(perfect_score(top(lad),sup->item_cost*sup->train_items)){
-      printf("FI ");
+      print_train_test_fitness("FI",sup,lad,agt_cfg,out,stdout);
     }
     else {
-      printf("GI ");
+      print_train_test_fitness("GI",sup,lad,agt_cfg,out,stdout);
     }
-    print_train_fitness( sup,lad,stdout );
-    print_test_fitness( sup,lad,agt_cfg,out,stdout );
-    printf(" %lld %lld\n",ncomp,neval);
     print_code( top(lad)->agt->cd,stdout );
     // tune for a fixed number of comparisons
     printf("REFINING...\n");
@@ -226,7 +209,7 @@ void tune_super(
   }
   num_trials = sup->train_items;
   sup->item_cost = 0.0;
-  top_is_better=compare_super(lad,sup,agt_cfg,out,rank,TRAIN,num_trials,fo);
+  top_is_better=compare_super(lad,sup,NULL,agt_cfg,out,rank,TRAIN,num_trials,fo);
   cmp = 0;
 
   while(       cmp < refine_comp
@@ -236,7 +219,7 @@ void tune_super(
 
     breed( lad,NULL,level_tune );
 
-    top_is_better = compare_super(lad,sup,agt_cfg,out,
+    top_is_better = compare_super(lad,sup,NULL,agt_cfg,out,
                                   rank,TRAIN,num_trials,fo);
     if( top_is_better ) {
       if( globals.interp_rate == 1.0 ) {
@@ -248,7 +231,7 @@ void tune_super(
         free_code( top(lad)->agt->cd );
         top(lad)->agt->cd = cd1;
         top_replace_pop( lad,fo );
-        top_is_better = compare_super(lad,sup,agt_cfg,out,
+        top_is_better = compare_super(lad,sup,NULL,agt_cfg,out,
                                       rank,TRAIN,num_trials,fo);
       }
     }
@@ -258,10 +241,7 @@ void tune_super(
   }
 
   if( !par->silent ) {
-    printf("TI ");
-    print_train_fitness( sup,lad,stdout );
-    print_test_fitness( sup,lad,agt_cfg,out,stdout );
-    printf(" %lld %lld\n",ncomp,neval);
+    print_train_test_fitness("TI",sup,lad,agt_cfg,out,stdout);
   }
 
   //if( sup->test_items > 0 ) { // return cost on TEST set
@@ -286,73 +266,60 @@ void search_super(
                   Library *lib
                  )
 {
+  Ladder  *lad_crit=NULL;
+  Library *crit=NULL;
   int     *rank;
   FILE    *fo = par->silent ? NULL : stdout;
-  int num_trials,num_fails=0;
-  int max_child = 10000;
+  Boolean still_searching,reshuffled;
+  int prev_trials;
   int epoch;
-  int r;
-
-  if( !par->silent ) {
-    printf("search super...\n");
-    printf("ITEMS %d %d\n",sup->train_items,sup->test_items);
-    fflush( stdout );
-  }
-
-  if( par->incremental ) {
-    shuffle_super( sup );
-  }
-  if( par->item_cost >= 0.0 ) {
-    sup->item_cost = par->item_cost;
-  }
-  if( par->cost_type != NONE ) {
-    sup->cost_type = par->cost_type;
-  }
-
-  if( globals.verbose ) {
-    print_super( sup,stdout );
-  }
-  if( sup->register_features ) {
-    if( sup->input->length[1] > 10 ) {
-      top(lad)->agt->cd->num_reg = sup->input->length[1];
-      if( !par->silent ) {
-        printf("num_reg = %d\n",top(lad)->agt->cd->num_reg);
-        fflush(stdout);
-      }
-    }
-  }
-
-  if( par->incremental ) {
-    top(lad)->score.num_trials = par->min_trials;
-  }
-  top(lad)->score.penalty = 1.0; // force initial loop cycle
-
-  if( !par->silent ) {
-    print_code( top(lad)->agt->cd,stdout );
-  }
-  //out = new_channel();
 
   rank = (int *)malloc((sup->train_items+1)*sizeof(int));
   check_null( rank );
-  for( r=0; r <= sup->train_items; r++ ) {
-    rank[r] = r;
+
+  if( !par->silent ) {
+    printf("search super...\n");
   }
+  super_prep_data( par->incremental,par,sup,rank,stdout );
 
   is_allowed[(int)BRB] = (    sup->cost_type == LED
                           || !sup->inputs_same_length );
 
+  super_prep_ladder( par,sup,lad,stdout );
+
+  //if( par->adversarial ) {
+  //if( 1 == 0 ) {
+  {
+    Code *crit_code = empty_code(10,par->num_cells,64,64);
+    int m;
+    lad_crit = new_ladder(256);
+    reset_ladder( lad_crit,crit_code );
+    super_prep_ladder( par,sup,lad_crit,stdout );
+    m = crit_code->level.m+1;
+    lad_crit->bank[m] = new_library(256);
+    crit = lad_crit->bank[m];
+  }
+
   epoch = 0;
 
-  while(                            epoch < par->max_epoch
-        &&                          neval < globals.max_eval
-        &&(    top(lad)->score.num_trials < sup->train_items
-           || !top(lad)->score.successful )) {
+  still_searching = TRUE;
 
-    epoch++;
+  while( still_searching ) {
 
-    num_trials = top(lad)->score.num_trials;
-    evolve_super(max_child,par->incremental,par->trim_interim,
-                 lad,sup,agt_cfg,out,rank,lib,fo);
+    reshuffled = FALSE;
+
+    while( still_searching & !reshuffled ) {
+
+      epoch++;
+
+      prev_trials = top(lad)->score.num_trials;
+      evolve_super(par->incremental,par->trim_interim,
+                   lad,sup,crit,agt_cfg,out,rank,lib,fo);
+
+      still_searching =                 epoch < par->max_epoch
+            &&                     lad->neval < globals.max_eval
+            &&(    top(lad)->score.num_trials < sup->train_items
+               || !top(lad)->score.successful );
     /*{
       int m;
       for( m=0; m < MAX_LEVEL; m++ ) {
@@ -362,53 +329,46 @@ void search_super(
         }
       }
     }*/
-    if( top(lad)->score.num_trials > num_trials ) {
-      max_child -= 500;
-      if( max_child < 10000 ) {
-        max_child = 10000;
-      }
-    }
-    else if( num_trials < sup->train_items ) {
-      max_child += 500;
-    }
+      adjust_max_child( lad,prev_trials,sup->train_items );
+
 #ifdef RESHUFFLE_FAILS
-    lad->adapting = TRUE;
-    if( top(lad)->score.num_trials > num_trials ) {
-      num_fails = 0;
-    }
-    else if( num_trials < sup->train_items ) {
-      num_fails++;
-      if( num_fails >= RESHUFFLE_FAILS ) {
+      reshuffled = check_reshuffle(lad,par->min_trials,prev_trials,
+                       top(lad)->score.num_trials,sup->train_items);
+      if( reshuffled ) {
         printf("XX %d",sup->train_set[rank[1]]);
-        printf(" %d\n",sup->train_set[rank[num_trials+1]]);
+        printf(" %d\n",sup->train_set[rank[prev_trials+1]]);
         shuffle_super( sup );
-        top(lad)->score.num_trials = par->min_trials;
         move_to_codebank( lad,CHAMP-1 );
-        max_child += 2000;
-        num_fails = 0;
-        lad->adapting = FALSE;
+        lad->max_child_per_epoch += 2000;
       }
-    }
-    /*
-    else if( !top(lad)->score.successful ) {
-      num_fails++;
-      if( num_fails >= RESHUFFLE_FAILS ) {
-        if( num_trials < sup->train_items ) {
-          shuffle_super( sup );
-        }
-        top(lad)->score.num_trials = par->min_trials;
-        num_fails = 0;
-      }
-    }
-    */
 #endif
+    }
   }
-  if (neval < globals.max_eval) {
+
+  super_trim_phase( par,lad,sup,agt_cfg,out,rank,fo );
+
+  printf("*** TASK COMPLETED AT EPOCH %d ***\n",epoch );
+
+  free( rank );
+}
+
+/********************************************************//**
+   Apply Ladder algorithm to evolve a candidate
+   using the specified training data.
+*/
+void super_trim_phase(
+                      Search_Param *par,
+                      Ladder  *lad,
+                      Super   *sup,
+                      Channel *agt_cfg,
+                      Channel *out,
+                      int     *rank,
+                      FILE    *fo
+                     )
+{
+  if ( lad->neval < globals.max_eval ) {
     if( !par->silent ) {
-      printf("FI ");
-      print_train_fitness( sup,lad,stdout );
-      print_test_fitness( sup,lad,agt_cfg,out,stdout );
-      printf(" %lld %lld\n",ncomp,neval);
+      print_train_test_fitness("FI",sup,lad,agt_cfg,out,stdout);
       print_code( top(lad)->agt->cd,stdout );
 #ifdef PRINT_HISTOGRAM
       if( globals.verbose ) {
@@ -425,20 +385,13 @@ void search_super(
     //trim_super( 20000,lad,sup,agt_cfg,out,rank,FALSE );
 
     if( !par->silent ) {
-      printf("TI ");
-      print_train_fitness( sup,lad,stdout );
-      print_test_fitness( sup,lad,agt_cfg,out,stdout );
-      printf(" %lld %lld\n",ncomp,neval);
-      printf("*** TASK SOLVED AT EPOCH %d ***\n",epoch );
+      print_train_test_fitness("TI",sup,lad,agt_cfg,out,stdout);
     }
   }
   else {
     printf("max_eval (%lld) exceeded\n",globals.max_eval);
     if( !par->silent ) {
-      printf("MI ");
-      print_train_fitness( sup,lad,stdout );
-      print_test_fitness( sup,lad,agt_cfg,out,stdout );
-      printf(" %lld %lld\n",ncomp,neval);
+      print_train_test_fitness("MI",sup,lad,agt_cfg,out,stdout);
     }
   }
   //if( sup->test_items > 0 ) { // return cost on TEST items
@@ -447,7 +400,6 @@ void search_super(
   //}
 
   //free_channel( out );
-  free( rank );
 }
 
 /********************************************************//**
@@ -469,11 +421,6 @@ void multi_super(
   int           *rank[MAX_TASK];
   Boolean incremental[MAX_TASK]={FALSE};
   Boolean      solved[MAX_TASK]={FALSE};
-  Long         ncomp_[MAX_TASK]={0};
-  Long         neval_[MAX_TASK]={0};
-  int     num_trials_[MAX_TASK]={0};
-  int      num_fails_[MAX_TASK]={0};
-  int      max_child_[MAX_TASK];
 
   Code    *champ;
   Channel *out;
@@ -485,8 +432,9 @@ void multi_super(
   char     word[1024];
   int max_train_items=0;
   int num_tasks;
+  int prev_trials;
   int epoch=0;
-  int d,j,k,r,i;
+  int d,j,k,i;
 
   Search_Param param = {
      NULL,  // file_in
@@ -513,7 +461,6 @@ void multi_super(
     lib->code_base = lib->num_code;
   }
   for( d=0; d < MAX_TASK; d++ ) {
-    max_child_[d] = 0;
     fo[d] = stdout;
   }
 
@@ -724,55 +671,32 @@ void multi_super(
         }
       }
 
-      if( incremental[d] ) {
-        shuffle_super( sup[d] );
-      }
-      if( param.item_cost >= 0.0 ) {
-        sup[d]->item_cost = param.item_cost;
-      }
-      else if( super_par->item_cost >= 0.0 ) {
-        sup[d]->item_cost = super_par->item_cost; // default
-      }
-      if( param.cost_type != NONE ) {
-        sup[d]->cost_type = param.cost_type;
-      }
-      if( globals.verbose ) {
-        print_super( sup[d], fo[d] );
-      }
       if( agt_code[d] == NULL ) {
         if( param.num_cells > 0 ) {
-          agt_code[d] = empty_code(10,param.num_cells,32,32);
+          agt_code[d] = empty_code(10,param.num_cells,64,64);
         }
         else {
           agt_code[d] = cross_mutate(agt_code0,NULL,level_copy);
         }
       }
-      if( sup[d]->register_features ) {
-        if( sup[d]->input->length[1] > 10 ) {
-          agt_code[d]->num_reg = sup[d]->input->length[1];
-          fprintf(fo[d],"num_reg[%d] = %d\n",d,agt_code[d]->num_reg);
-          fflush(fo[d]);
-        }
+
+      lad[d] = new_ladder(256);
+      reset_ladder( lad[d],agt_code[d] );
+
+      rank[d] = (int *)malloc((sup[d]->train_items+1)*sizeof(int));
+      check_null( rank[d] );
+
+      super_prep_data(incremental[d],&param,sup[d],rank[d],fo[d]);
+
+      if( param.item_cost < 0.0 && super_par->item_cost >= 0.0 ) {
+        sup[d]->item_cost = super_par->item_cost; // default
       }
       if( sup[d]->train_items > max_train_items ) {
         max_train_items = sup[d]->train_items;
       }
 
-      lad[d] = new_ladder(256);
+      super_prep_ladder( &param,sup[d],lad[d],fo[d] );
 
-      reset_ladder( lad[d],agt_code[d] );
-
-      if( incremental[d] ) {
-        top(lad[d])->score.num_trials = param.min_trials;
-      }
-
-      top(lad[d])->score.penalty = 1.0;
-
-      rank[d] = (int *)malloc((sup[d]->train_items+1)*sizeof(int));
-      check_null( rank[d] );
-      for( r=0; r <= sup[d]->train_items; r++ ) {
-        rank[d][r] = r;
-      }
       //fgets( line,1024,fi );
     }
   }
@@ -792,11 +716,12 @@ void multi_super(
     for( d=0; d < num_local_tasks; d++ ) {
       // d is index relative to this task.
       i = d + interval_start; // overall index
-      
+
       if( !solved[d] ) {
-        
+
         if( halt && globals.terminate_early ) {
-          print_termination(lad[d],ncomp_[d],neval_[d],epoch,i,fo[d]);
+          print_termination(lad[d],lad[d]->ncomp,
+                            lad[d]->neval,epoch,i,fo[d]);
           solved[d] = TRUE;
           continue;
         }
@@ -805,46 +730,24 @@ void multi_super(
 
         is_allowed[(int)BRB] = (    sup[d]->cost_type == LED
                                 || !sup[d]->inputs_same_length );
-
-        ncomp = ncomp_[d];
-        neval = neval_[d];
-
         clear_message(out,1);
 
-        halt |= evolve_super(max_child_[d],incremental[d],
-                             super_par->trim_interim,lad[d],
-                             sup[d],NULL,out,rank[d],lib,fo[d]);
-        if( top(lad[d])->score.num_trials > num_trials_[d] ) {
-          max_child_[d] -= 500;
-          if( max_child_[d] < 10000 ) {
-            max_child_[d] = 10000;
-          }
-        }
-        else if( num_trials_[d] < sup[d]->train_items ) {
-          max_child_[d] += 500;
-        }
+        prev_trials = top(lad[d])->score.num_trials;
+        halt |= evolve_super(incremental[d],super_par->trim_interim,
+                      lad[d],sup[d],NULL,NULL,out,rank[d],lib,fo[d]);
+
+        adjust_max_child( lad[d],prev_trials,sup[d]->train_items );
+
 #ifdef RESHUFFLE_FAILS
-        lad[d]->adapting = TRUE;
-        if( top(lad[d])->score.num_trials > num_trials_[d] ) {
-          num_fails_[d] = 0;
-        }
-        else if( num_trials_[d] < sup[d]->train_items ) {
-          num_fails_[d]++;
-          if( num_fails_[d] >= RESHUFFLE_FAILS ) {
-            fprintf(fo[d],"XX %d",sup[d]->train_set[rank[d][1]]);
-            fprintf(fo[d]," %d\n",sup[d]->train_set[rank[d][num_trials_[d]+1]]);
-            shuffle_super( sup[d] );
-            top(lad[d])->score.num_trials = param.min_trials;
-            num_trials_[d] = top(lad[d])->score.num_trials;
-            max_child_[d] += 2000;
-            num_fails_[d] = 0;
-            lad[d]->adapting = FALSE;
-          }
+        if( check_reshuffle(lad[d],param.min_trials,prev_trials,
+                      top(lad[d])->score.num_trials,sup[d]->train_items)){
+          printf("XX %d",sup[d]->train_set[rank[d][1]]);
+          printf(" %d\n",sup[d]->train_set[rank[d][prev_trials+1]]);
+          shuffle_super( sup[d] );
+          move_to_codebank( lad[d],CHAMP-1 );
+          lad[d]->max_child_per_epoch += 2000;
         }
 #endif
-        ncomp_[d] = ncomp;
-        neval_[d] = neval;
-
         champ = cross_mutate( top(lad[d])->agt->cd,NULL,level_copy );
 #ifdef SHARING
         insert_library( lib,lib->code_base+i,champ );
@@ -854,20 +757,17 @@ void multi_super(
           broadcast_code(champ, i, my_rank, num_processes);
         }
 #endif
-        if( top(lad[d])->score.num_trials > num_trials_[d] ) {
-          num_trials_[d] = top(lad[d])->score.num_trials;
-        }
+        //if( top(lad[d])->score.num_trials > prev_trials_[d] ) {
+        //  prev_trials_[d] = top(lad[d])->score.num_trials;
+        //}
 
         // TODO: alter output when max_eval exceeded
-        if(           neval_[d] >= globals.max_eval
-           ||(   num_trials_[d] >= sup[d]->train_items
+        if(        lad[d]->neval >= globals.max_eval
+           ||(   top(lad[d])->score.num_trials >= sup[d]->train_items
               && top(lad[d])->score.successful )) {
 
           solved[d] = TRUE;
-          fprintf(fo[d],"FI ");
-          print_train_fitness( sup[d],lad[d],fo[d] );
-          print_test_fitness( sup[d],lad[d],agt_cfg[d],out,fo[d] );
-          fprintf(fo[d]," %lld %lld\n",ncomp_[d],neval_[d]);
+          print_train_test_fitness("FI",sup[d],lad[d],agt_cfg[d],out,fo[d]);
           print_code( top(lad[d])->agt->cd,fo[d] );
           fflush( fo[d] );
           
@@ -898,26 +798,19 @@ void multi_super(
 
             sup[d]->item_cost = 0.0;
 
-            ncomp = ncomp_[d];
-            neval = neval_[d];
             fin = trim_super(super_par->trim_final,lad[d],sup[d],
                              agt_cfg[d],out,rank[d],fo[d]);
-
-            ncomp_[d] = ncomp;
-            neval_[d] = neval;
-          } else {
+          }
+          else {
             fin = FALSE;
           }
           
           if( !fin ){ // Trimming terminated early
-            print_termination(lad[d], ncomp, neval, 
+            print_termination(lad[d],lad[d]->ncomp,lad[d]->neval, 
                               epoch, d+interval_start, fo[d]);
-          } else {
-
-            fprintf(fo[d],"TI ");
-            print_train_fitness( sup[d],lad[d],fo[d] );
-            print_test_fitness( sup[d],lad[d],agt_cfg[d],out,fo[d] );
-            fprintf(fo[d]," %lld %lld\n",ncomp_[d],neval_[d]);
+          }
+          else {
+            print_train_test_fitness("TI",sup[d],lad[d],agt_cfg[d],out,fo[d]);
             print_code( top(lad[d])->agt->cd,fo[d] );
             
             fprintf(fo[d],"*** TASK %d SOLVED AT EPOCH %d ***\n",
@@ -956,6 +849,75 @@ void multi_super(
 }
 
 /********************************************************//**
+   Prepare parameters for supervised training.
+*/
+void super_prep_data(
+                     Boolean incremental,
+                     Search_Param *par,
+                     Super *sup,
+                     int   *rank,
+                     FILE  *fp
+                    )
+{
+  int r;
+
+  if( !par->silent ) {
+    fprintf(fp,"ITEMS %d %d\n",sup->train_items,sup->test_items);
+    fflush( fp );
+  }
+  if( incremental ) {
+    shuffle_super( sup );
+  }
+  if( par->item_cost >= 0.0 ) {
+    sup->item_cost = par->item_cost;
+  }
+  if( par->cost_type != NONE ) {
+    sup->cost_type = par->cost_type;
+  }
+  if( globals.verbose ) {
+    print_super( sup,fp );
+  }
+  for( r=0; r <= sup->train_items; r++ ) {
+    rank[r] = r;
+  }
+}
+
+/********************************************************//**
+   Prepare ladder for supervised training
+*/
+void super_prep_ladder(
+                       Search_Param *par,
+                       Super  *sup,
+                       Ladder *lad,
+                       FILE   *fp
+                      )
+{
+  lad->max_child_per_epoch = 10000;
+  lad->num_fails = 0;
+  lad->ncomp = 0;
+  lad->neval = 0;
+
+  if( sup->register_features ) {
+    if( sup->input->length[1] > 10 ) {
+      top(lad)->agt->cd->num_reg = sup->input->length[1];
+      if( !par->silent ) {
+        fprintf(fp,"num_reg = %d\n",top(lad)->agt->cd->num_reg);
+        fflush(fp);
+      }
+    }
+  }
+  random_codebank( lad,128 );
+  if( par->incremental ) {
+    top(lad)->score.num_trials = par->min_trials;
+  }
+  top(lad)->score.successful = FALSE;
+
+  if( !par->silent ) {
+    print_code( top(lad)->agt->cd,fp );
+  }
+}
+
+/********************************************************//**
    Print error message and fail
 */
 void super_options( char line[] )
@@ -974,18 +936,16 @@ void super_options( char line[] )
   exit( 1 );
 }
 
-//Long cumul = 0;
-
 /********************************************************//**
    Apply Ladder algorithm to evolve a candidate
    using the specified training data.
 */
 Boolean evolve_super(
-                     int      max_child,
                      Boolean  incremental,
                      int      trim_int,
                      Ladder  *lad,
                      Super   *sup,
+                     Library *crit,
                      Channel *agt_cfg,
                      Channel *out,
                      int      rank[],
@@ -997,11 +957,10 @@ Boolean evolve_super(
   Boolean top_is_better;
   int prev_trials,num_trials;
   int child=0;
-  int r;
 
   if( incremental ) {
     num_trials = top(lad)->score.num_trials;
-    compare_super( lad,sup,agt_cfg,out,rank,TRAIN,num_trials,fo );
+    compare_super( lad,sup,crit,agt_cfg,out,rank,TRAIN,num_trials,fo );
     if( top(lad)->score.num_trials > num_trials && fo != NULL ) {
       num_trials = top(lad)->score.num_trials;
       fprintf( fo,"SI ");
@@ -1011,14 +970,14 @@ Boolean evolve_super(
   }
   else {
     num_trials = sup->train_items;
-    compare_super( lad,sup,agt_cfg,out,rank,TRAIN,num_trials,fo );
+    compare_super(lad,sup,crit,agt_cfg,out,rank,TRAIN,num_trials,fo);
   }
   target_cost = num_trials * sup->item_cost;
   prev_trials = num_trials;
 
   Boolean halt = FALSE;
   
-  while(  ( child < max_child || pop(lad) != NULL )
+  while(  ( child < lad->max_child_per_epoch || pop(lad) != NULL )
         &&(    top(lad)->score.num_trials < sup->train_items
            || !top(lad)->score.successful )) {
     child++;
@@ -1046,17 +1005,14 @@ Boolean evolve_super(
 
     //reset_score(top(lad)); // already in compare_super()
     //prev_trials = num_trials; ??????!!!!!!!!!!
-    top_is_better = compare_super(lad,sup,agt_cfg,out,
+    top_is_better = compare_super(lad,sup,crit,agt_cfg,out,
                                   rank,TRAIN,num_trials,fo);
 
     if( top(lad)->score.num_trials > num_trials ) {// incremental
       num_trials = top(lad)->score.num_trials; // increment trials
-      rank[0] = rank[num_trials]; // bring new item to front
-      for( r = num_trials; r >= 1; r-- ) {
-        rank[r] = rank[r-1];
-      }
+      bring_to_front( rank,num_trials );
       target_cost = num_trials * sup->item_cost;
-      child = max_child; // break out of loop
+      child = lad->max_child_per_epoch; // break out of loop
     }
 
     while( top_is_better ) {
@@ -1076,10 +1032,7 @@ Boolean evolve_super(
   }
 
   if( fo != NULL ) {
-    fprintf( fo,"KI ");
-    print_train_fitness( sup,lad,fo );
-    print_test_fitness( sup,lad,agt_cfg,out,fo );
-    fprintf( fo," %lld %lld\n",ncomp,neval );
+    print_train_test_fitness("KI",sup,lad,agt_cfg,out,fo);
     if( top(lad)->agt->cd->num_cells == 1 ) {
       print_cell( top(lad)->agt->cd,0,fo );
     }
@@ -1133,7 +1086,7 @@ Boolean trim_super(
 
   champ = cross_mutate( top(lad)->agt->cd,NULL,level_copy );
 
-  compare_super(lad,sup,agt_cfg,out,rank,TRAIN,num_trials,fo);
+  compare_super(lad,sup,NULL,agt_cfg,out,rank,TRAIN,num_trials,fo);
   champ_cost = top(lad)->score.cost;
 
   mismatch = get_test_mismatch( sup,lad,agt_cfg,out );
@@ -1145,10 +1098,10 @@ Boolean trim_super(
   }
 
   while( !halt && cmp   < t
-               && neval < globals.max_eval + 100000000 - num_trials ) {
+               && lad->neval < globals.max_eval + 100000000 - num_trials){
 
     breed( lad,NULL,level_trim );
-    top_is_better = compare_super(lad,sup,agt_cfg,out,
+    top_is_better = compare_super(lad,sup,NULL,agt_cfg,out,
                                   rank,TRAIN,num_trials,fo);
     if( top_is_better ) {
       top_replace_pop( lad,fo );
@@ -1162,10 +1115,7 @@ Boolean trim_super(
         champ_cost = top(lad)->score.cost;
         new_mismatch = get_test_mismatch( sup,lad,agt_cfg,out );
         if(( globals.verbose || new_mismatch != mismatch )&& fo != NULL ) {
-          fprintf(fo,"LI ");
-          print_train_fitness( sup,lad,fo );
-          print_test_fitness( sup,lad,agt_cfg,out,fo );
-          fprintf(fo," %lld %lld\n",ncomp,neval);
+          print_train_test_fitness("LI",sup,lad,agt_cfg,out,fo);
           if( top(lad)->agt->cd->num_cells == 1 ) {
             print_cell( top(lad)->agt->cd,0,fo );
           }
@@ -1211,8 +1161,25 @@ Boolean trim_super(
   free_code( top(lad)->agt->cd );
   top(lad)->agt->cd = champ;
 
-
   return( TRUE );
+}
+
+/********************************************************//**
+   Print current train and test fitness, ncomp and neval
+*/
+void print_train_test_fitness(
+                              char    *str,
+                              Super   *sup,
+                              Ladder  *lad,
+                              Channel *agt_cfg,
+                              Channel *out,
+                              FILE    *fp
+                             )
+{
+  fprintf( fp,"%s ",str );
+  print_train_fitness( sup,lad,fp );
+  print_test_fitness( sup,lad,agt_cfg,out,fp );
+  printf(" %lld %lld\n",lad->ncomp,lad->neval);
 }
 
 /********************************************************//**
@@ -1223,6 +1190,7 @@ Boolean trim_super(
 Boolean compare_super(
                       Ladder  *lad,
                       Super   *sup,
+                      Library *crit,
                       Channel *agt_cfg,
                       Channel *out,
                       int      rank[],
@@ -1232,6 +1200,7 @@ Boolean compare_super(
                      )
 {
   Candidate *can=top(lad);
+  Agent  *agt_crit=NULL;
   Score   prev_score,this_score;
   int    *tset; // train or test set
   Boolean top_is_better;
@@ -1242,7 +1211,7 @@ Boolean compare_super(
   int     max_trials;
   int r=0;
 
-  ncomp++;
+  lad->ncomp++;
 
   if( set == TRAIN ) {
     tset       = sup->train_set;
@@ -1259,7 +1228,8 @@ Boolean compare_super(
   while( !final ) {
     r++;
     prev_score = can->score;
-    eval_super( can,sup,agt_cfg,out,tset,rank[r],r );
+    eval_super( lad,can,sup,agt_cfg,out,tset,rank[r],r );
+    crit_super( can,sup,crit,agt_crit,agt_cfg,tset,rank[r],out,r );
     if( can->score.num_trials > num_trials ) {
       if( num_trials == prev_trials && fo != NULL ) {
         this_score = can->score;
@@ -1294,7 +1264,8 @@ Boolean compare_super(
           rank[r+1] = rank_r;
         }
         prev_score = can->score;
-        eval_super( can,sup,agt_cfg,out,tset,rank[r],r );
+        eval_super( lad,can,sup,agt_cfg,out,tset,rank[r],r );
+        crit_super( can,sup,crit,agt_crit,agt_cfg,tset,rank[r],out,r );
         target_cost = r * sup->item_cost;
       } while(   r < max_trials
               && perfect_score(can,target_cost));
@@ -1333,8 +1304,6 @@ void test_super(
                 int set
                )
 {
-  Long neval0 = neval; // exclude these (diagnostic) evaluations
-  Long ncomp0 = ncomp; // and comparisons from the overall count
   int *tset;
   int  num_items;
   int r;
@@ -1348,22 +1317,21 @@ void test_super(
     tset      = sup->test_set;
   }
   for( r=1; r <= num_items; r++ ) {
-    eval_super( can,sup,agt_cfg,out,tset,r,r );
+    eval_super( NULL,can,sup,agt_cfg,out,tset,r,r );
   }
   can->score.all_outputs_same = all_items_same(out);
   if( num_items > 1 && can->score.all_outputs_same ) {
     can->score.penalty += 1.0;
   }
-  neval = neval0;      // restore the previous values
-  ncomp = ncomp0;
 }
 
 /********************************************************//**
    Test candidate agent on item r in the specified set
-  (TRAIN or TEST) in super data and store the output to *out(r).
+  (TRAIN or TEST) in super data and store the output to *out(o).
    Update can->score.num_trials,num_steps, cost and penalty.
 */
 void eval_super(
+                Ladder  *lad,
                 Candidate *can,
                 Super   *sup,
                 Channel *agt_cfg,
@@ -1381,9 +1349,11 @@ void eval_super(
   if( scr->reject) {
     return;
   }
+  if( lad != NULL ) {
+    lad->neval++;
+  }
   clear_message(out,o);
   m = tset[r];
-  neval++;
   reset_agent( agt );
 
   if( sup->register_features ) {
@@ -1430,6 +1400,128 @@ void eval_super(
   cue_message( sup->target, m );
   cue_message( out, o );
   update_score( can,out,sup->target,sup->cost_type );
+}
+
+/********************************************************//**
+   Test each critic on item r in the specified set
+  (TRAIN or TEST) in super data and evaluate the output *out(o).
+   Update can->score.cost
+*/
+void crit_super(
+                Candidate *can,
+                Super   *sup,
+                Library *crit,
+                Agent   *agt,
+                Channel *agt_cfg,
+                int     *tset,
+                int r,
+                Channel *out,
+                int o
+               )
+{
+  Score *scr = &can->score;
+  double val;
+  int k,l,m;
+
+  m = tset[r];
+  if( scr->reject || crit == NULL || crit->num_code == 0
+                  || same_message( sup->target,m,out,o )) {
+    return;
+  }
+  for( l=0; l < crit->num_code; l++  ) {
+    agt->cd = crit->code[l];
+    run_critic( agt,agt_cfg,sup,m,out,o );
+    // scr->num_steps += agt->step;
+    if( agt->running ) { // time limit or call stack exceeded
+      //scr->reject  = TRUE;
+      // remove this code from the library of critics
+      free_code( crit->code[l] );
+      crit->num_code--;
+      for( k = l; k < crit->num_code; k++ ) {
+        crit->code[k] = crit->code[k+1];
+      }
+      l--;
+    }
+    else if( agt->stack_items > 0 ) {
+      //task->score.cost = top_of_stack( env );
+      val = top_of_stack( agt );
+      if( isfinite( val )) {
+        if( val < 0.0 ) {
+          scr->cost += 1.0;
+        }
+        else if ( val < 1.0 ) {
+          scr->cost += ( 1.0 - val );
+        }
+      }
+    }
+    // add val to cost
+  }
+}
+
+/********************************************************//**
+   Run the critic (specified in can->agt->cd) on input m of super
+   and evaluate out(o) as a putative answer.
+   Return the evaluation, which is the top item on the stack.
+*/
+void run_critic(
+                Agent   *agt,
+                Channel *agt_cfg,
+                Super   *sup,
+                int      m,
+                Channel *out,
+                int      o
+               )
+{
+  Channel *agt_in = agt_cfg;
+  int op;
+  int n;
+
+  if( agt->cd == NULL ) {
+    return;
+  }
+  cue_message( out, o );
+  reset_agent( agt );
+
+  if( sup->register_features ) {
+    int i=0; // load features into registers
+    while( i < agt->cd->num_reg && i < sup->input->length[m] ) {
+      agt->reg[i] = sup->input->val[sup->input->index[m]+i];
+      i++;
+    }
+    sup->input->max_im = 0;  // no inputs allowed
+  }
+  else {
+    n = 1 + (m-1)*sup->inputs_per_item;
+    cue_message( sup->input, n );
+    sup->input->max_im = n + sup->inputs_per_item - 1;
+  }
+  cue_message( agt_cfg,1 );
+
+  while( agt->running && agt->step < MAX_STEP ) {
+         //           && agt->call_stack_size < MAX_CALL_STACK
+         //           && op != OUT ) {
+    op = step( agt, agt_in, NULL );
+    //print_state( agt,agt_in,out,stdout );
+    if( op == INP && agt_in != out && input_exhausted( agt_in )) {
+      if( agt_in == agt_cfg && !sup->register_features ) {
+        agt_in = sup->input;
+      }
+      else {
+        agt_in = out;
+      }
+      agt->bstack[agt->bp] = fetch_input( agt_in );
+    }
+    // penalize for output ??
+    //print_state(agt,sup->input,out,stdout);
+    //keych = getchar();
+  }
+  //out->wi = out->index[out->om];
+  //print_message( out,n,stdout );
+
+
+
+  //cue_message( sup->target, m );
+  //cue_message( out, o );
 }
 
 /********************************************************//**

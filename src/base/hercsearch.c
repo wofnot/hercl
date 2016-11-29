@@ -140,7 +140,6 @@ int main( int argc, char *argv[] )
         param.max_epoch = 100000;
         lad = new_ladder(256);
         reset_ladder( lad,agt_code );
-        random_codebank( lad,128 );
         search_super( &param,sup,agt_cfg,out,lad,lib );
       }
       print_code( top(lad)->agt->cd,stdout );

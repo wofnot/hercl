@@ -1,6 +1,8 @@
 /** \File eval.h
 */
 
+#define   RESHUFFLE_FAILS  6
+
 //#define  RESERVE_CHAMP  1
 
 #ifdef   RESERVE_CHAMP
@@ -121,12 +123,14 @@ struct ladder {
   char  ts[MAX_TRACE];
   char *ti[MAX_LEVEL];
 #endif
+  Long ncomp; // total number of fitness evaluations
+  Long neval; // total number of items evaluated
   int max_bank;
+  int max_child_per_epoch;
+  int num_fails; // used for reshuffling data
+  //int epoch;
   int s;
 };
-
-extern Long ncomp; // total number of fitness evaluations
-extern Long neval; // total number of items evaluated
 
 extern long eval_seed;
 
@@ -146,27 +150,31 @@ void        print_library(Library *lib,FILE *fout);
 void        clear_library(Library *lib );
 void     move_to_codebank(Ladder *lad,int s);
 
-Ladder  * new_ladder(int max_bank);
-void    print_ladder(Ladder *lad,FILE *fp);
-void     free_ladder(Ladder *lad);
-void    reset_ladder(Ladder *lad,Code *cd);
-void  reset_codebank(Ladder *lad);
-void random_codebank(Ladder *lad,int num_code);
-void       procreate(Ladder *lad,Library *lib);
-void           breed(Ladder *lad,Code *cd1,Level level);
-Candidate       *top(Ladder *lad);
-Candidate       *pop(Ladder *lad);
-int         cull_top(Ladder *lad,FILE *fp);
-void top_replace_pop(Ladder *lad,FILE *fp);
+Ladder     * new_ladder(int max_bank);
+void       print_ladder(Ladder *lad,FILE *fp);
+void        free_ladder(Ladder *lad);
+void       reset_ladder(Ladder *lad,Code *cd);
+void   adjust_max_child(Ladder *lad,int num_trials,int max_trials);
+Boolean check_reshuffle(Ladder *lad,int min_trials,int prev_trials,
+                        int num_trials,int max_trials);
+void     reset_codebank(Ladder *lad);
+void    random_codebank(Ladder *lad,int num_code);
+void          procreate(Ladder *lad,Library *lib);
+void              breed(Ladder *lad,Code *cd1,Level level);
+Candidate          *top(Ladder *lad);
+Candidate          *pop(Ladder *lad);
+int            cull_top(Ladder *lad,FILE *fp);
+void    top_replace_pop(Ladder *lad,FILE *fp);
 #ifdef PRINT_HISTOGRAM
-void      print_hist(Ladder *lad,FILE *fo);
+void         print_hist(Ladder *lad,FILE *fo);
 #endif
-void     print_stats(Ladder *lad,FILE *fo);
+void        print_stats(Ladder *lad,FILE *fo);
 
-void  generate_seeds(int max_seeds,long seed[]);
-void   shuffle_seeds(int max_seeds,long seed[]);
+void     generate_seeds(int max_seeds,long seed[]);
+void      shuffle_seeds(int max_seeds,long seed[]);
+void     bring_to_front(int rank[],int n);
 
-void print_termination(Ladder *lad,Long ncomp,Long neval,
-                       int epoch,int task,FILE *fo);
+void  print_termination(Ladder *lad,Long ncomp,Long neval,
+                        int epoch,int task,FILE *fo);
 
 //void compress_ladder(Ladder *lad );

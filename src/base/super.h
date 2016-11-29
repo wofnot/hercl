@@ -25,8 +25,8 @@ void search_super(Search_Param *par,Super *sup,Channel *agt_cfg,
 void  multi_super(Search_Param *super_par,Code *agt_code0,Library *lib);
 void   test_super(Candidate *can,Super *sup,Channel *agt_cfg,
                   Channel *out,int set);
-void   eval_super(Candidate *can,Super *sup,Channel *agt_cfg,
-                  Channel *out,int *tset,int r,int o);
+void   eval_super(Ladder *lad,Candidate *can,Super *sup,
+                  Channel *agt_cfg,Channel *out,int *tset,int r,int o);
 Super  *new_super();
 Super *scan_super(FILE  *fi);
 void  print_super(Super *sup,FILE *fo);
